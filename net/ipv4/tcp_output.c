@@ -3192,7 +3192,6 @@ void tcp_send_fin(struct sock *sk)
 		tskb = skb_rb_last(&sk->tcp_rtx_queue);
 
 	if (tskb) {
-coalesce:
 		TCP_SKB_CB(tskb)->tcp_flags |= TCPHDR_FIN;
 		TCP_SKB_CB(tskb)->end_seq++;
 		tp->write_seq++;
@@ -3208,11 +3207,9 @@ coalesce:
 		}
 	} else {
 		skb = alloc_skb_fclone(MAX_TCP_HEADER, sk->sk_allocation);
-		if (unlikely(!skb)) {
-			if (tskb)
-				goto coalesce;
+		if (unlikely(!skb))
 			return;
-		}
+
 		INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
 		skb_reserve(skb, MAX_TCP_HEADER);
 		sk_forced_mem_schedule(sk, skb->truesize);
