@@ -546,16 +546,8 @@ static void pt_config_buffer(void *buf, unsigned int topa_idx,
 	wrmsrl(MSR_IA32_RTIT_OUTPUT_MASK, reg);
 }
 
-/*
- * Keep ToPA table-related metadata on the same page as the actual table,
- * taking up a few words from the top
- */
-
-#define TENTS_PER_PAGE (((PAGE_SIZE - 40) / sizeof(struct topa_entry)) - 1)
-
 /**
- * struct topa - page-sized ToPA table with metadata at the top
- * @table:	actual ToPA table entries, as understood by PT hardware
+ * struct topa - ToPA metadata
  * @list:	linkage to struct pt_buffer's list of tables
  * @phys:	physical address of this page
  * @offset:	offset of the first entry in this table in the buffer
@@ -563,7 +555,6 @@ static void pt_config_buffer(void *buf, unsigned int topa_idx,
  * @last:	index of the last initialized entry in this table
  */
 struct topa {
-	struct topa_entry	table[TENTS_PER_PAGE];
 	struct list_head	list;
 	u64			phys;
 	u64			offset;
@@ -571,8 +562,40 @@ struct topa {
 	int			last;
 };
 
+/*
+ * Keep ToPA table-related metadata on the same page as the actual table,
+ * taking up a few words from the top
+ */
+
+#define TENTS_PER_PAGE	\
+	((PAGE_SIZE - sizeof(struct topa)) / sizeof(struct topa_entry))
+
+/**
+ * struct topa_page - page-sized ToPA table with metadata at the top
+ * @table:	actual ToPA table entries, as understood by PT hardware
+ * @topa:	metadata
+ */
+struct topa_page {
+	struct topa_entry	table[TENTS_PER_PAGE];
+	struct topa		topa;
+};
+
+static inline struct topa_page *topa_to_page(struct topa *topa)
+{
+	return container_of(topa, struct topa_page, topa);
+}
+
+static inline struct topa_page *topa_entry_to_page(struct topa_entry *te)
+{
+	return (struct topa_page *)((unsigned long)te & PAGE_MASK);
+}
+
 /* make -1 stand for the last table entry */
-#define TOPA_ENTRY(t, i) ((i) == -1 ? &(t)->table[(t)->last] : &(t)->table[(i)])
+#define TOPA_ENTRY(t, i)				\
+	((i) == -1					\
+		? &topa_to_page(t)->table[(t)->last]	\
+		: &topa_to_page(t)->table[(i)])
+#define TOPA_ENTRY_SIZE(t, i) (sizes(TOPA_ENTRY((t), (i))->size))
 
 /**
  * topa_alloc() - allocate page-sized ToPA table
@@ -584,27 +607,27 @@ struct topa {
 static struct topa *topa_alloc(int cpu, gfp_t gfp)
 {
 	int node = cpu_to_node(cpu);
-	struct topa *topa;
+	struct topa_page *tp;
 	struct page *p;
 
 	p = alloc_pages_node(node, gfp | __GFP_ZERO, 0);
 	if (!p)
 		return NULL;
 
-	topa = page_address(p);
-	topa->last = 0;
-	topa->phys = page_to_phys(p);
+	tp = page_address(p);
+	tp->topa.last = 0;
+	tp->topa.phys = page_to_phys(p);
 
 	/*
 	 * In case of singe-entry ToPA, always put the self-referencing END
 	 * link as the 2nd entry in the table
 	 */
 	if (!intel_pt_validate_hw_cap(PT_CAP_topa_multiple_entries)) {
-		TOPA_ENTRY(topa, 1)->base = topa->phys >> TOPA_SHIFT;
-		TOPA_ENTRY(topa, 1)->end = 1;
+		TOPA_ENTRY(&tp->topa, 1)->base = tp->topa.phys;
+		TOPA_ENTRY(&tp->topa, 1)->end = 1;
 	}
 
-	return topa;
+	return &tp->topa;
 }
 
 /**
@@ -714,22 +737,23 @@ static void pt_topa_dump(struct pt_buffer *buf)
 	struct topa *topa;
 
 	list_for_each_entry(topa, &buf->tables, list) {
+		struct topa_page *tp = topa_to_page(topa);
 		int i;
 
-		pr_debug("# table @%p (%016Lx), off %llx size %zx\n", topa->table,
+		pr_debug("# table @%p (%016Lx), off %llx size %zx\n", tp->table,
 			 topa->phys, topa->offset, topa->size);
 		for (i = 0; i < TENTS_PER_PAGE; i++) {
 			pr_debug("# entry @%p (%lx sz %u %c%c%c) raw=%16llx\n",
-				 &topa->table[i],
-				 (unsigned long)topa->table[i].base << TOPA_SHIFT,
-				 sizes(topa->table[i].size),
-				 topa->table[i].end ?  'E' : ' ',
-				 topa->table[i].intr ? 'I' : ' ',
-				 topa->table[i].stop ? 'S' : ' ',
-				 *(u64 *)&topa->table[i]);
+				 &tp->table[i],
+				 (unsigned long)tp->table[i].base << TOPA_SHIFT,
+				 sizes(tp->table[i].size),
+				 tp->table[i].end ?  'E' : ' ',
+				 tp->table[i].intr ? 'I' : ' ',
+				 tp->table[i].stop ? 'S' : ' ',
+				 *(u64 *)&tp->table[i]);
 			if ((intel_pt_validate_hw_cap(PT_CAP_topa_multiple_entries) &&
-			     topa->table[i].stop) ||
-			    topa->table[i].end)
+			     tp->table[i].stop) ||
+			    tp->table[i].end)
 				break;
 		}
 	}
@@ -772,7 +796,7 @@ static void pt_update_head(struct pt *pt)
 
 	/* offset of the current output region within this table */
 	for (topa_idx = 0; topa_idx < buf->cur_idx; topa_idx++)
-		base += sizes(buf->cur->table[topa_idx].size);
+		base += TOPA_ENTRY_SIZE(buf->cur, topa_idx);
 
 	if (buf->snapshot) {
 		local_set(&buf->data_size, base);
@@ -792,7 +816,7 @@ static void pt_update_head(struct pt *pt)
  */
 static void *pt_buffer_region(struct pt_buffer *buf)
 {
-	return phys_to_virt(buf->cur->table[buf->cur_idx].base << TOPA_SHIFT);
+	return phys_to_virt(TOPA_ENTRY(buf->cur, buf->cur_idx)->base << TOPA_SHIFT);
 }
 
 /**
@@ -801,7 +825,7 @@ static void *pt_buffer_region(struct pt_buffer *buf)
  */
 static size_t pt_buffer_region_size(struct pt_buffer *buf)
 {
-	return sizes(buf->cur->table[buf->cur_idx].size);
+	return TOPA_ENTRY_SIZE(buf->cur, buf->cur_idx);
 }
 
 /**
@@ -831,7 +855,7 @@ static void pt_handle_status(struct pt *pt)
 		 * know.
 		 */
 		if (!intel_pt_validate_hw_cap(PT_CAP_topa_multiple_entries) ||
-		    buf->output_off == sizes(TOPA_ENTRY(buf->cur, buf->cur_idx)->size)) {
+		    buf->output_off == pt_buffer_region_size(buf)) {
 			perf_aux_output_flag(&pt->handle,
 			                     PERF_AUX_FLAG_TRUNCATED);
 			advance++;
@@ -869,9 +893,11 @@ static void pt_handle_status(struct pt *pt)
 static void pt_read_offset(struct pt_buffer *buf)
 {
 	u64 offset, base_topa;
+	struct topa_page *tp;
 
 	rdmsrl(MSR_IA32_RTIT_OUTPUT_BASE, base_topa);
-	buf->cur = phys_to_virt(base_topa);
+	tp = phys_to_virt(base_topa);
+	buf->cur = &tp->topa;
 
 	rdmsrl(MSR_IA32_RTIT_OUTPUT_MASK, offset);
 	/* offset within current output region */
@@ -926,8 +952,7 @@ static int pt_buffer_reset_markers(struct pt_buffer *buf,
 	unsigned long idx, npages, wakeup;
 
 	/* can't stop in the middle of an output region */
-	if (buf->output_off + handle->size + 1 <
-	    sizes(TOPA_ENTRY(buf->cur, buf->cur_idx)->size)) {
+	if (buf->output_off + handle->size + 1 < pt_buffer_region_size(buf)) {
 		perf_aux_output_flag(handle, PERF_AUX_FLAG_TRUNCATED);
 		return -EINVAL;
 	}
@@ -1022,6 +1047,7 @@ static void pt_buffer_setup_topa_index(struct pt_buffer *buf)
  */
 static void pt_buffer_reset_offsets(struct pt_buffer *buf, unsigned long head)
 {
+	struct topa_page *cur_tp;
 	int pg;
 
 	if (buf->snapshot)
@@ -1030,7 +1056,8 @@ static void pt_buffer_reset_offsets(struct pt_buffer *buf, unsigned long head)
 	pg = (head >> PAGE_SHIFT) & (buf->nr_pages - 1);
 	pg = pt_topa_next_entry(buf, pg);
 
-	buf->cur = (struct topa *)((unsigned long)buf->topa_index[pg] & PAGE_MASK);
+	cur_tp = topa_entry_to_page(buf->topa_index[pg]);
+	buf->cur = &cur_tp->topa;
 	buf->cur_idx = buf->topa_index[pg] - TOPA_ENTRY(buf->cur, 0);
 	buf->output_off = head & (pt_buffer_region_size(buf) - 1);
 
@@ -1296,7 +1323,7 @@ void intel_pt_interrupt(void)
 			return;
 		}
 
-		pt_config_buffer(buf->cur->table, buf->cur_idx,
+		pt_config_buffer(topa_to_page(buf->cur)->table, buf->cur_idx,
 				 buf->output_off);
 		pt_config(event);
 	}
@@ -1361,7 +1388,7 @@ static void pt_event_start(struct perf_event *event, int mode)
 	WRITE_ONCE(pt->handle_nmi, 1);
 	hwc->state = 0;
 
-	pt_config_buffer(buf->cur->table, buf->cur_idx,
+	pt_config_buffer(topa_to_page(buf->cur)->table, buf->cur_idx,
 			 buf->output_off);
 	pt_config(event);
 
