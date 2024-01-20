@@ -58,8 +58,6 @@
 		mhi-netdev0 = &mhi_netdev_0;
 		/* #ifdef OPLUS_ARCH_EXTENDS */
 		i2c2 = &qupv3_se15_i2c;
-		i2c3 = &qupv3_se1_i2c;  /* for nq-nci*/
-		i2c6 = &qupv3_se11_i2c; /* For aw8697*/
 		/* #endif OPLUS_ARCH_EXTENDS */
 	};
 
@@ -4780,7 +4778,6 @@
 		qcom,wlan-rc-num = <0>;
 		qcom,wlan-ramdump-dynamic = <0x420000>;
 		qcom,smmu-s1-enable;
-		qcom,converged-dt;
                 cnss-daemon-support;
 		qcom,cmd_db_name = "smpf2";
 		qcom,set-wlaon-pwr-ctrl;

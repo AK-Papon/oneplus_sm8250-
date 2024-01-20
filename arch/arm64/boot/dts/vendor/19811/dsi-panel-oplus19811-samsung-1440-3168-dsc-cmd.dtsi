@@ -2104,9 +2104,9 @@
 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 	qcom,mdss-dsi-bl-min-level = <1>;
 	qcom,mdss-dsi-bl-normal-max-level = <2047>;
-	qcom,mdss-dsi-bl-max-level = <2047>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
 	qcom,mdss-brightness-normal-max-level = <2047>;
-	qcom,mdss-brightness-max-level = <2047>;
+	qcom,mdss-brightness-max-level = <4095>;
 	qcom,mdss-brightness-default-level = <400>;
 	qcom,platform-te-gpio = <&tlmm 66 0>;
 	qcom,platform-reset-gpio = <&tlmm 75 0>;
@@ -2137,22 +2137,6 @@
 				<1600 64>,
 				<2047 43>,
 				<2047 43>;
-
-	oplus,dsi-aod-high-brightness = <4 180>,
-				<17 150>,
-				<33 135>,
-				<49 110>,
-				<65 90>,
-				<81 80>,
-				<97 75>,
-				<113 70>,
-				<129 60>;
-
-	oplus,dsi-aod-low-brightness = <4 108>,
-				<17 95>,
-				<33 0>;
-
-	oplus,dsi-aod-low-brightness-threshold = <33>;
 
 	qcom,mdss-dsi-display-timings {
 		 timing@0 { /* FHD+ 60hz 412.8Mhz 825.6Mbps */

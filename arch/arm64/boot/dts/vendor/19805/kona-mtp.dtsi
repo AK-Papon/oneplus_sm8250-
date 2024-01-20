@@ -369,6 +369,7 @@
 		freq_hop_simulate_support;
 		report_flow_unlock_support;
 		screenoff_fingerprint_info_support;
+		exception_upload_support;
 		/*
 		 *Virtual Key Config:
 		 *1:touchpanel,button-type: <virtualkey_type  supportted_button-map>
@@ -1545,6 +1546,8 @@
 			qcom,default_temp_little_cool_vfloat_mv = <4435>;
 			qcom,default_little_cool_vfloat_over_sw_limit = <4445>;
 
+			oplus,aging_ffc_version = <1>;
+
 			///qcom,offset_temp = <30>;
 			//for control:
 			//qcom,suspend_after_full;
@@ -1616,6 +1619,11 @@
 		track,voocphy_type = <4>;
 		track,wired_max_power = <65000>;
 		track,wired_fast_chg_scheme = <1>;
+	};
+
+	oplus_battery_log: oplus,battery_log {
+		compatible = "oplus,battery_log";
+		oplus,battery_log_support;
 	};
 };
 //#endif //OPLUS_FEATURE_CHG_BASIC
