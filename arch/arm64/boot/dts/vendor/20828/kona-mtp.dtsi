@@ -351,7 +351,7 @@
 
                 platform_support_project_dir = <19065 19805 19065>;
 
-                platform_support_project_commandline = "mdss_dsi_oppo19065_samsung_1440_3168_dsc_cmd","default_commandline","default_commandline";
+                platform_support_project_commandline = "mdss_dsi_oplus19065_samsung_1440_3168_dsc_cmd","default_commandline","default_commandline";
 		touchpanel,elimination-range = <20 200 200>;
 		prevention,no_handle_para = <0 0 0>;
 		prevention,dead_area_width = <20 10>;
@@ -460,6 +460,7 @@
 		report_flow_unlock_support;
 		screenoff_fingerprint_info_support;
 		lcd_tp_refresh_support;
+		exception_upload_support;
 		/*
 		 *Virtual Key Config:
 		 *1:touchpanel,button-type: <virtualkey_type  supportted_button-map>
@@ -1523,6 +1524,8 @@
 			qcom,default_temp_little_cool_vfloat_mv = <4435>;
 			qcom,default_little_cool_vfloat_over_sw_limit = <4445>;
 
+			oplus,aging_ffc_version = <1>;
+
 			///qcom,offset_temp = <30>;
 			//for control:
 			//qcom,suspend_after_full;
@@ -1590,6 +1593,11 @@
                 track,wired_max_power = <65000>;
                 track,wired_fast_chg_scheme = <1>;
         };
+
+	oplus_battery_log: oplus,battery_log {
+		compatible = "oplus,battery_log";
+		oplus,battery_log_support;
+	};
 };
 //#endif //OPLUS_FEATURE_CHG_BASIC
 
