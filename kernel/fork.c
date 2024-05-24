@@ -120,6 +120,9 @@
 #ifdef CONFIG_OPLUS_FEATURE_IM
 #include <linux/im/im.h>
 #endif
+#if IS_ENABLED(CONFIG_OPLUS_LOCKING_STRATEGY)
+#include <linux/sched_assist/sync/futex.h>
+#endif
 
 #ifdef CONFIG_OPLUS_FEATURE_INPUT_BOOST_V4
 #include <linux/tuning/frame_init.h>
@@ -2058,6 +2061,9 @@ static __latent_entropy struct task_struct *copy_process(
 	memset(&p->jank_info, 0, sizeof(struct jank_monitor_info));
 #endif
 #endif /* OPLUS_FEATURE_HEALTHINFO */
+#if IS_ENABLED(CONFIG_OPLUS_LOCKING_STRATEGY)
+	init_task_lkinfo(p);
+#endif
 
 #if defined(OPLUS_FEATURE_TASK_CPUSTATS) && defined(CONFIG_OPLUS_SCHED)
 	p->wake_tid = 0;

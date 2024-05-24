@@ -7339,7 +7339,7 @@ static void find_best_target(struct sched_domain *sd, cpumask_t *cpus,
 					p->abnormal_flag++;
 				if (p->abnormal_flag == ABNORMAL_THRESHOLD)
 					set_task_state(p);
-				if (p->abnormal_flag > ABNORMAL_THRESHOLD)
+				if (sysctl_abnormal_enable && p->abnormal_flag > ABNORMAL_THRESHOLD)
 					continue;
 			}
 #endif /* #OPLUS_FEATURE_ABNORMAL_FLAG */
