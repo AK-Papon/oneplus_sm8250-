@@ -2593,6 +2593,8 @@ int32_t npu_host_unload_network(struct npu_client *client,
 		goto free_network;
 	}
 
+	network->is_unloading = true;
+
 	if (host_ctx->dev_shuttingdown) {
 		NPU_ERR("device is shutting down, skip unload network in fw\n");
 		goto free_network;

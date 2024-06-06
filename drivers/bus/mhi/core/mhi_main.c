@@ -1385,7 +1385,7 @@ int mhi_process_tsync_ev_ring(struct mhi_controller *mhi_cntrl,
 	int ret = 0;
 
 	spin_lock_bh(&mhi_event->lock);
-	if (!is_valid_ring_ptr(ev_ring, er_ctxt->rp)) {
+		if (!is_valid_ring_ptr(ev_ring, er_ctxt->rp)) {
 		MHI_ERR(
 			"Event ring rp points outside of the event ring or unalign rp %llx\n",
 			er_ctxt->rp);
@@ -1484,6 +1484,7 @@ int mhi_process_bw_scale_ev_ring(struct mhi_controller *mhi_cntrl,
 	int result, ret = 0;
 
 	spin_lock_bh(&mhi_event->lock);
+
 	if (!is_valid_ring_ptr(ev_ring, er_ctxt->rp)) {
 		MHI_ERR(
 			"Event ring rp points outside of the event ring or unalign rp %llx\n",
@@ -1493,6 +1494,7 @@ int mhi_process_bw_scale_ev_ring(struct mhi_controller *mhi_cntrl,
 	}
 
 	dev_rp = mhi_to_virtual(ev_ring, er_ctxt->rp);
+
 	if (ev_ring->rp == dev_rp) {
 		spin_unlock_bh(&mhi_event->lock);
 		goto exit_bw_scale_process;
