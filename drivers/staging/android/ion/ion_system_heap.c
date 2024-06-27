@@ -518,10 +518,6 @@ static int ion_system_heap_allocate(struct ion_heap *heap,
 	if (nents_sync)
 		sg_free_table(&table_sync);
 	ion_heap_free_pages_mem(&data);
-#ifdef CONFIG_OPLUS_ION_BOOSTPOOL
-	if (boost_pool)
-		boost_pool_wakeup_process(boost_pool);
-#endif /* CONFIG_OPLUS_ION_BOOSTPOOL */
 	return 0;
 
 err_free_sg2:

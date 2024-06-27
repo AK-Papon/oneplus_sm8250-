@@ -287,8 +287,9 @@ static void mhi_netdev_queue(struct mhi_netdev *mhi_netdev,
 	struct list_head *pool = mhi_netdev->recycle_pool;
 	int nr_tre = mhi_get_no_free_descriptors(mhi_dev, DMA_FROM_DEVICE);
 	int i, ret;
-	const int  max_peek = 4;
-
+    /* #ifdef OPLUS_BUG_STABILITY*/
+	//const int  max_peek = 4;
+    /* #endif OPLUS_BUG_STABILITY*/
 	MSG_VERB("Enter free_desc:%d\n", nr_tre);
 
 	if (!nr_tre)
@@ -299,8 +300,9 @@ static void mhi_netdev_queue(struct mhi_netdev *mhi_netdev,
 		/* peek for the next buffer, we going to peak several times,
 		 * and we going to give up if buffers are not yet free
 		 */
-		int peek = 0;
-
+        /* #ifdef OPLUS_BUG_STABILITY*/
+		//int peek = 0;
+        /* #endif OPLUS_BUG_STABILITY*/
 		netbuf = NULL;
 		list_for_each_entry(mhi_buf, pool, node) {
 			/* page == 1 idle, buffer is free to reclaim */
@@ -308,9 +310,10 @@ static void mhi_netdev_queue(struct mhi_netdev *mhi_netdev,
 				netbuf = (struct mhi_netbuf *)mhi_buf;
 				break;
 			}
-
-			if (peek++ >= max_peek)
-				break;
+			/* #ifdef OPLUS_BUG_STABILITY*/
+			//if (peek++ >= max_peek)
+			//	break;
+			/* #endif OPLUS_BUG_STABILITY*/
 		}
 
 		/* could not find a free buffer */
@@ -338,12 +341,18 @@ static void mhi_netdev_queue(struct mhi_netdev *mhi_netdev,
 	}
 
 	/* recycling did not work, buffers are still busy use bg pool */
-	if (i < nr_tre)
+	if (i < nr_tre) {
+		MSG_ERR("recycle pool not enough, nr_tre is %d, i is %d ", nr_tre, i);
 		i += mhi_netdev_queue_bg_pool(mhi_netdev, mhi_dev, nr_tre - i);
+    }
+
 
 	/* recyling did not work, buffers are still busy allocate temp pkts */
-	if (i < nr_tre)
+	if (i < nr_tre) {
+		MSG_ERR("recycle pool and bg pool not enough, nr_tre is %d, i is %d ", nr_tre, i);
 		mhi_netdev_tmp_alloc(mhi_netdev, mhi_dev, nr_tre - i);
+    }
+
 }
 
 /* allocating pool of memory */

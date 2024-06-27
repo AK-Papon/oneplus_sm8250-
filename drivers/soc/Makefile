@@ -74,3 +74,7 @@ obj-$(CONFIG_NANDSWAP)		+= oplus/oplus_nandswap/
 #ifdef OPLUS_FEATURE_GAME_OPT
 obj-$(CONFIG_OPLUS_FEATURE_GAME_OPT) += oplus/game_opt/
 #endif /* OPLUS_FEATURE_GAME_OPT */
+
+#ifdef OPLUS_FEATURE_ABNORMAL_FLAG
+obj-$(CONFIG_OPLUS_FEATURE_ABNORMAL_FLAG) += oplus/oplus_overload/
+#endif

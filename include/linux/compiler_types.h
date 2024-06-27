@@ -1,6 +1,11 @@
 #ifndef __LINUX_COMPILER_TYPES_H
 #define __LINUX_COMPILER_TYPES_H
 
+//#ifndef OPLUS_EDIT
+// vendor/oplus/secure/biometrics/fingerprints/bsp/vendor/fingerprint/goodix/capacitive_fp/gf_ca/Android.mk
+#ifndef __TEE_QSEE
+//end
+
 #ifndef __ASSEMBLY__
 
 #ifdef __CHECKER__
@@ -310,5 +315,7 @@ struct ftrace_likely_data {
  * noinline_for_stack instead.  For documentation reasons.
  */
 #define noinline_for_stack noinline
-
+//#ifndef OPLUS_EDIT
+#endif /* __TEE_QSEE */
+//end
 #endif /* __LINUX_COMPILER_TYPES_H */

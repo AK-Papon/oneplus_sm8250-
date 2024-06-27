@@ -953,6 +953,10 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	tsk->active_memcg = NULL;
 #endif
 
+#ifdef CONFIG_OPLUS_FEATURE_ABNORMAL_FLAG
+	tsk->abnormal_flag = 0;
+#endif
+
 #ifdef CONFIG_OPLUS_FEATURE_TPD
 	tsk->tpd = 0;
 	tsk->dtpd = 0;

@@ -1135,6 +1135,11 @@ struct rq {
 #ifdef OPLUS_FEATURE_SCHED_ASSIST
 	struct list_head ux_thread_list;
 #endif /* OPLUS_FEATURE_SCHED_ASSIST */
+#ifdef CONFIG_LOCKING_PROTECT
+	int rq_locking_task;
+	int rq_picked_locking_cont;
+	struct list_head locking_thread_list;
+#endif
 };
 
 #ifdef CONFIG_FAIR_GROUP_SCHED

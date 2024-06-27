@@ -353,33 +353,33 @@ void g_update_task_runtime(struct task_struct *task, u64 runtime)
 	if (atomic_read(&need_stat_runtime) == 0)
 		return;
 
-	raw_spin_lock_irqsave(&g_lock, flags);
-
-	if (!game_leader || task->tgid != game_leader->tgid)
-		goto rsunlock;
-
-	now = ktime_get_ns();
-	exec_scale = scale_exec_time(runtime, rq);
-
-	list_for_each(pos, &running_task_list) {
-		rinfo = list_entry(pos, struct task_runtime_info, node);
-		if (rinfo->tid == task->pid) {
-			rinfo->sum_exec_scale += exec_scale;
-			rinfo->last_update_ts = now;
+	/*
+	 * only stat runtime when lock is available,
+	 * if not available, skip.
+	 */
+	if (raw_spin_trylock_irqsave(&g_lock, flags)) {
+		if (!game_leader || task->tgid != game_leader->tgid)
 			goto rsunlock;
+		now = ktime_get_ns();
+		exec_scale = scale_exec_time(runtime, rq);
+		list_for_each(pos, &running_task_list) {
+			rinfo = list_entry(pos, struct task_runtime_info, node);
+			if (rinfo->tid == task->pid) {
+				rinfo->sum_exec_scale += exec_scale;
+				rinfo->last_update_ts = now;
+				goto rsunlock;
+			}
 		}
-	}
-
-	new_rinfo = rinfo_mempool_alloc_one();
-	if (new_rinfo) {
-		new_rinfo->tid = task->pid;
-		new_rinfo->sum_exec_scale = exec_scale;
-		new_rinfo->last_update_ts = now;
-		list_add_tail(&new_rinfo->node, &running_task_list);
-	}
-
+		new_rinfo = rinfo_mempool_alloc_one();
+		if (new_rinfo) {
+			new_rinfo->tid = task->pid;
+			new_rinfo->sum_exec_scale = exec_scale;
+			new_rinfo->last_update_ts = now;
+			list_add_tail(&new_rinfo->node, &running_task_list);
+		}
 rsunlock:
-	raw_spin_unlock_irqrestore(&g_lock, flags);
+		raw_spin_unlock_irqrestore(&g_lock, flags);
+	}
 }
 
 void g_rt_task_dead(struct task_struct *task)
@@ -390,22 +390,19 @@ void g_rt_task_dead(struct task_struct *task)
 
 	if (atomic_read(&need_stat_runtime) == 0)
 		return;
-
-	raw_spin_lock_irqsave(&g_lock, flags);
-
-	if (!game_leader || task->tgid != game_leader->tgid)
-		goto rsunlock;
-
-	list_for_each_safe(pos, n, &running_task_list) {
-		rinfo = list_entry(pos, struct task_runtime_info, node);
-		if (rinfo->tid == task->pid) {
-			rinfo_mempool_free_one(rinfo);
-			break;
+	if (raw_spin_trylock_irqsave(&g_lock, flags)) {
+		if (!game_leader || task->tgid != game_leader->tgid)
+			goto rsunlock;
+		list_for_each_safe(pos, n, &running_task_list) {
+			rinfo = list_entry(pos, struct task_runtime_info, node);
+			if (rinfo->tid == task->pid) {
+				rinfo_mempool_free_one(rinfo);
+				break;
+			}
 		}
-	}
-
 rsunlock:
-	raw_spin_unlock_irqrestore(&g_lock, flags);
+		raw_spin_unlock_irqrestore(&g_lock, flags);
+	}
 }
 
 int task_util_init(void)
