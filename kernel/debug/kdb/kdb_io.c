@@ -192,7 +192,7 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
  */
 static void kdb_position_cursor(char *prompt, char *buffer, char *cp)
 {
-	kdb_printf("\r%s", kdb_prompt_str);
+	kdb_printf("\r%s", prompt);
 	if (cp > buffer)
 		kdb_printf("%.*s", (int)(cp - buffer), buffer);
 }
@@ -242,7 +242,6 @@ static char *kdb_read(char *buffer, size_t bufsize)
 	int count;
 	int i;
 	int diag, dtab_count;
-	static int last_crlf;
 	int key, buf_size, ret;
 
 
@@ -265,9 +264,6 @@ poll_again:
 		return buffer;
 	if (key != 9)
 		tab = 0;
-	if (key != 10 && key != 13)
-		last_crlf = 0;
-
 	switch (key) {
 	case 8: /* backspace */
 		if (cp > buffer) {
@@ -281,12 +277,7 @@ poll_again:
 			kdb_position_cursor(kdb_prompt_str, buffer, cp);
 		}
 		break;
-	case 10: /* new line */
-	case 13: /* carriage return */
-		/* handle \n after \r */
-		if (last_crlf && last_crlf != key)
-			break;
-		last_crlf = key;
+	case 13: /* enter */
 		*lastchar++ = '\n';
 		*lastchar++ = '\0';
 		if (!KDB_STATE(KGDB_TRANS)) {
@@ -377,7 +368,7 @@ poll_again:
 			if (i >= dtab_count)
 				kdb_printf("...");
 			kdb_printf("\n");
-			kdb_printf(kdb_prompt_str);
+			kdb_printf("%s",  kdb_prompt_str);
 			kdb_printf("%s", buffer);
 			if (cp != lastchar)
 				kdb_position_cursor(kdb_prompt_str, buffer, cp);
@@ -468,8 +459,8 @@ poll_again:
 char *kdb_getstr(char *buffer, size_t bufsize, const char *prompt)
 {
 	if (prompt && kdb_prompt_str != prompt)
-		strncpy(kdb_prompt_str, prompt, CMD_BUFLEN);
-	kdb_printf(kdb_prompt_str);
+		strscpy(kdb_prompt_str, prompt, CMD_BUFLEN);
+	kdb_printf("%s", kdb_prompt_str);
 	kdb_nextline = 1;	/* Prompt and input resets line number */
 	return kdb_read(buffer, bufsize);
 }
