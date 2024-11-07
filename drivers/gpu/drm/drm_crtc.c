@@ -768,7 +768,6 @@ out:
 	connector_set = NULL;
 	fb = NULL;
 	mode = NULL;
-	num_connectors = 0;
 
 	if (ret == -EDEADLK) {
 		ret = drm_modeset_backoff(&ctx);
