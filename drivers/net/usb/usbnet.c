@@ -1361,7 +1361,7 @@ netdev_tx_t usbnet_start_xmit (struct sk_buff *skb,
 	struct skb_data		*entry;
 	struct driver_info	*info = dev->driver_info;
 	unsigned long		flags;
-	int retval = 0;
+	int retval;
 
 	if (skb)
 		skb_tx_timestamp(skb);
@@ -1581,13 +1581,6 @@ static void usbnet_bh (struct timer_list *t)
 	}
 }
 
-static void usbnet_bh_tasklet(unsigned long data)
-{
-	struct timer_list *t = (struct timer_list *)data;
-
-	usbnet_bh(t);
-}
-
 
 /*-------------------------------------------------------------------------
  *
@@ -1718,7 +1711,7 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	skb_queue_head_init (&dev->txq);
 	skb_queue_head_init (&dev->done);
 	skb_queue_head_init(&dev->rxq_pause);
-	dev->bh.func = usbnet_bh_tasklet;
+	dev->bh.func = (void (*)(unsigned long))usbnet_bh;
 	dev->bh.data = (unsigned long)&dev->delay;
 	INIT_WORK (&dev->kevent, usbnet_deferred_kevent);
 	init_usb_anchor(&dev->deferred);
@@ -1753,7 +1746,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		// can rename the link if it knows better.
 		if ((dev->driver_info->flags & FLAG_ETHER) != 0 &&
 		    ((dev->driver_info->flags & FLAG_POINTTOPOINT) == 0 ||
-		     (net->dev_addr [0] & 0x02) == 0))
+		     /* somebody touched it*/
+		     !is_zero_ether_addr(net->dev_addr)))
 			strscpy(net->name, "eth%d", sizeof(net->name));
 		/* WLAN devices should always be named "wlan%d" */
 		if ((dev->driver_info->flags & FLAG_WLAN) != 0)

@@ -23,7 +23,6 @@
 #include <asm/cpu.h>
 #include <asm/cputype.h>
 #include <asm/cpufeature.h>
-#include <asm/mmu_context.h>
 #include <asm/smp_plat.h>
 #include <asm/vectors.h>
 
@@ -345,6 +344,19 @@ void arm64_set_ssbd_mitigation(bool state)
 			asm volatile(SET_PSTATE_SSBS(0));
 		else
 			asm volatile(SET_PSTATE_SSBS(1));
+
+		/*
+		 * SSBS is self-synchronizing and is intended to affect
+		 * subsequent speculative instructions, but some CPUs can
+		 * speculate with a stale value of SSBS.
+		 *
+		 * Mitigate this with an unconditional speculation barrier, as
+		 * CPUs could mis-speculate branches and bypass a conditional
+		 * barrier.
+		 */
+		if (IS_ENABLED(CONFIG_ARM64_ERRATUM_3194386))
+			spec_bar();
+
 		return;
 	}
 
@@ -665,18 +677,6 @@ needs_tx2_tvm_workaround(const struct arm64_cpu_capabilities *entry,
 	return false;
 }
 
-#ifdef CONFIG_ARM64_ERRATUM_1542418
-static void run_workaround_1542418_asid_rollover(const struct arm64_cpu_capabilities *c)
-{
-	/*
-	 * If this CPU is affected by the erratum, run the workaround
-	 * to protect us in case we are running on a kexec'ed kernel.
-	 */
-	if (c->matches(c, SCOPE_LOCAL_CPU))
-		arm64_workaround_1542418_asid_rollover();
-}
-#endif
-
 static bool __maybe_unused
 has_neoverse_n1_erratum_1542419(const struct arm64_cpu_capabilities *entry,
 				int scope)
@@ -699,47 +699,37 @@ static const struct midr_range arm64_harden_el2_vectors[] = {
 
 #endif
 
-#ifdef CONFIG_ARM64_ERRATUM_858921
-
-static const struct midr_range arm64_workaround_858921_cpus[] = {
-	/* Cortex-A73 all versions */
-	MIDR_ALL_VERSIONS(MIDR_CORTEX_A73),
-	/* KRYO2XX Gold all versions */
-	MIDR_ALL_VERSIONS(MIDR_KRYO2XX_GOLD),
-	{},
-};
-
-#endif
-
-#ifdef CONFIG_ARM64_ERRATUM_1188873
-
-static const struct midr_range arm64_workaround_1188873_cpus[] = {
-	/* Cortex-A76 r0p0 to r2p0 */
-	MIDR_RANGE(MIDR_CORTEX_A76, 0, 0, 2, 0),
-	/* Kryo-4G r15p14 */
-	MIDR_RANGE(MIDR_KRYO4G, 15, 14, 15, 14),
-	{},
-};
-
-#endif
-
-#ifdef CONFIG_ARM64_ERRATUM_845719
-
-static const struct midr_range arm64_workaround_845719_cpus[] = {
-	/* Cortex-A53 r0p[01234] */
-	MIDR_RANGE(MIDR_CORTEX_A53, 0, 0, 0, 4),
-	/* Kryo2xx Silver rAp4 */
-	MIDR_RANGE(MIDR_KRYO2XX_SILVER, 0xA, 0x4, 0xA, 0x4),
-	{},
-};
-
-#endif
-
 #ifdef CONFIG_ARM64_ERRATUM_1742098
 static struct midr_range broken_aarch32_aes[] = {
 	MIDR_RANGE(MIDR_CORTEX_A57, 0, 1, 0xf, 0xf),
 	MIDR_ALL_VERSIONS(MIDR_CORTEX_A72),
 	{},
+};
+#endif
+
+#ifdef CONFIG_ARM64_ERRATUM_3194386
+static const struct midr_range erratum_spec_ssbs_list[] = {
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A76),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A77),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A78),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A78C),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A710),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A715),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A720),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_A725),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X1),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X1C),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X2),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X3),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X4),
+	MIDR_ALL_VERSIONS(MIDR_CORTEX_X925),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N1),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N2),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N3),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V1),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V2),
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_V3),
+	{}
 };
 #endif
 
@@ -795,9 +785,10 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 #endif
 #ifdef CONFIG_ARM64_ERRATUM_845719
 	{
+	/* Cortex-A53 r0p[01234] */
 		.desc = "ARM erratum 845719",
 		.capability = ARM64_WORKAROUND_845719,
-		ERRATA_MIDR_RANGE_LIST(arm64_workaround_845719_cpus),
+		ERRATA_MIDR_REV_RANGE(MIDR_CORTEX_A53, 0, 0, 4),
 	},
 #endif
 #ifdef CONFIG_CAVIUM_ERRATUM_23154
@@ -883,9 +874,10 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 #endif
 #ifdef CONFIG_ARM64_ERRATUM_858921
 	{
+	/* Cortex-A73 all versions */
 		.desc = "ARM erratum 858921",
 		.capability = ARM64_WORKAROUND_858921,
-		ERRATA_MIDR_RANGE_LIST(arm64_workaround_858921_cpus),
+		ERRATA_MIDR_ALL_VERSIONS(MIDR_CORTEX_A73),
 	},
 #endif
 	{
@@ -909,13 +901,6 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		.matches = has_ssbd_mitigation,
 		.midr_range_list = arm64_ssb_cpus,
 	},
-#ifdef CONFIG_ARM64_ERRATUM_1188873
-	{
-		.desc = "ARM erratum 1188873",
-		.capability = ARM64_WORKAROUND_1188873,
-		ERRATA_MIDR_RANGE_LIST(arm64_workaround_1188873_cpus),
-	},
-#endif
 	{
 		.desc = "Spectre-BHB",
 		.capability = ARM64_SPECTRE_BHB,
@@ -939,14 +924,6 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		.matches = needs_tx2_tvm_workaround,
 	},
 #endif
-#ifdef CONFIG_ARM64_ERRATUM_1542418
-	{
-		.desc = "ARM erratum 1542418",
-		.capability = ARM64_WORKAROUND_1542418,
-		ERRATA_MIDR_RANGE(MIDR_CORTEX_A77, 0, 0, 1, 0),
-		.cpu_enable = run_workaround_1542418_asid_rollover,
-	},
-#endif
 #ifdef CONFIG_ARM64_ERRATUM_1542419
 	{
 		/* we depend on the firmware portion for correctness */
@@ -963,6 +940,13 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		.capability = ARM64_WORKAROUND_1742098,
 		CAP_MIDR_RANGE_LIST(broken_aarch32_aes),
 		.type = ARM64_CPUCAP_LOCAL_CPU_ERRATUM,
+	},
+#endif
+#ifdef CONFIG_ARM64_ERRATUM_3194386
+	{
+		.desc = "SSBS not fully self-synchronizing",
+		.capability = ARM64_WORKAROUND_SPECULATIVE_SSBS,
+		ERRATA_MIDR_RANGE_LIST(erratum_spec_ssbs_list),
 	},
 #endif
 	{
