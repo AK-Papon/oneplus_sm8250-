@@ -2100,12 +2100,14 @@ static void mmc_blk_mq_dec_in_flight(struct mmc_queue *mq,
 				     struct request_queue *q,
 				     enum mmc_issue_type issue_type)
 {
+	struct mmc_host *host = mq->card->host;
 	unsigned long flags;
 	bool put_card;
 
 	spin_lock_irqsave(q->queue_lock, flags);
 
 	mq->in_flight[issue_type] -= 1;
+	atomic_dec(&host->active_reqs);
 
 	put_card = (mmc_tot_in_flight(mq) == 0);
 
@@ -3480,4 +3482,3 @@ module_exit(mmc_blk_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Multimedia Card (MMC) block device driver");
-

@@ -349,7 +349,7 @@ struct bnxt_qplib_cqe {
 	u32				length;
 	u64				wr_id;
 	union {
-		u32			immdata;
+		__le32			immdata;
 		u32			invrkey;
 	};
 	u64				qp_handle;
