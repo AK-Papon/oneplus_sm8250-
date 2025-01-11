@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2017, 2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/module.h>
 #include <linux/init.h>
@@ -94,12 +93,11 @@ static int msm_digcdc_clock_control(bool flag)
 				       __func__);
 				/*
 				 * Avoid access to lpass register
-				 * as clock enable failed during SSR/PDR.
+				 * as clock enable failed during SSR.
 				 */
-				msm_dig_cdc->regmap->cache_only = true;
+				if (ret == -ENODEV)
+					msm_dig_cdc->regmap->cache_only = true;
 				return ret;
-			} else {
-				msm_dig_cdc->regmap->cache_only = false;
 			}
 			pr_debug("enabled digital codec core clk\n");
 			atomic_set(&pdata->int_mclk0_enabled, true);
@@ -1142,10 +1140,8 @@ static int msm_dig_cdc_event_notify(struct notifier_block *block,
 		break;
 	case DIG_CDC_EVENT_SSR_UP:
 		regcache_cache_only(msm_dig_cdc->regmap, false);
-		if ((msm_dig_cdc->regmap) != NULL && (msm_dig_cdc->regmap->lock) != NULL &&
-			(msm_dig_cdc->regmap->lock_arg) != NULL) {
-			regcache_mark_dirty(msm_dig_cdc->regmap);
-		}
+		regcache_mark_dirty(msm_dig_cdc->regmap);
+
 		mutex_lock(&pdata->cdc_int_mclk0_mutex);
 		pdata->digital_cdc_core_clk.enable = 1;
 		ret = afe_set_lpass_clock_v2(
@@ -1159,10 +1155,7 @@ static int msm_dig_cdc_event_notify(struct notifier_block *block,
 		}
 		mutex_unlock(&pdata->cdc_int_mclk0_mutex);
 
-		if ((msm_dig_cdc->regmap) != NULL && (msm_dig_cdc->regmap->lock) != NULL &&
-                        (msm_dig_cdc->regmap->lock_arg) != NULL) {
-			regcache_sync(msm_dig_cdc->regmap);
-		}
+		regcache_sync(msm_dig_cdc->regmap);
 
 		mutex_lock(&pdata->cdc_int_mclk0_mutex);
 		pdata->digital_cdc_core_clk.enable = 0;

@@ -123,7 +123,6 @@ enum {
 };
 
 struct fuse_conn;
-
 /**
  * Reference to lower filesystem file for read/write operations handled in
  * passthrough mode.
@@ -161,9 +160,6 @@ struct fuse_file {
 	/** Entry on inode's write_files list */
 	struct list_head write_entry;
 
-	/** Container for data related to the passthrough functionality */
-	struct fuse_passthrough passthrough;
-
 	/** RB node to be linked on fuse_conn->polled_files */
 	struct rb_node polled_node;
 
@@ -172,6 +168,9 @@ struct fuse_file {
 
 	/** Has flock been performed on this file? */
 	bool flock:1;
+
+	/** Container for data related to the passthrough functionality */
+	struct fuse_passthrough passthrough;
 };
 
 /** One input argument of a request */
@@ -406,6 +405,7 @@ struct fuse_req {
 
 	/** Request is stolen from fuse_file->reserved_req */
 	struct file *stolen_file;
+
 };
 
 struct fuse_iqueue {
@@ -578,6 +578,8 @@ struct fuse_conn {
 	/** handle fs handles killing suid/sgid/cap on write/chown/trunc */
 	unsigned handle_killpriv:1;
 
+	/** Passthrough mode for read/write IO */
+	unsigned int passthrough:1;
 	/*
 	 * The following bitfields are only for optimization purposes
 	 * and hence races in setting them will not cause malfunction
@@ -664,9 +666,6 @@ struct fuse_conn {
 	/** Allow other than the mounter user to access the filesystem ? */
 	unsigned allow_other:1;
 
-	/** Passthrough mode for read/write IO */
-	unsigned int passthrough:1;
-
 	/** The number of requests waiting for completion */
 	atomic_t num_waiting;
 
@@ -735,6 +734,7 @@ static inline u64 get_node_id(struct inode *inode)
 
 static inline void fuse_make_bad(struct inode *inode)
 {
+	remove_inode_hash(inode);
 	set_bit(FUSE_I_BAD, &get_fuse_inode(inode)->state);
 }
 

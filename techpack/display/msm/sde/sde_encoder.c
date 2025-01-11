@@ -2449,8 +2449,6 @@ static int _sde_encoder_rc_kickoff(struct drm_encoder *drm_enc,
 	/* cancel delayed off work, if any */
 	_sde_encoder_rc_cancel_delayed(sde_enc, sw_event);
 
-	msm_idle_set_state(drm_enc, true);
-
 	mutex_lock(&sde_enc->rc_lock);
 
 	/* return if the resource control is already in ON state */
@@ -2559,8 +2557,6 @@ static int _sde_encoder_rc_frame_done(struct drm_encoder *drm_enc,
 		idle_pc_duration = IDLE_SHORT_TIMEOUT;
 	else
 		idle_pc_duration = IDLE_POWERCOLLAPSE_DURATION;
-
-	msm_idle_set_state(drm_enc, false);
 
 	if (!autorefresh_enabled)
 		kthread_mod_delayed_work(
@@ -3322,6 +3318,21 @@ static void _sde_encoder_input_handler_register(
 			kfree(sde_enc->input_handler);
 		}
 	}
+}
+
+static void _sde_encoder_input_handler_unregister(
+		struct drm_encoder *drm_enc)
+{
+	struct sde_encoder_virt *sde_enc = to_sde_encoder_virt(drm_enc);
+
+	if (!sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_CMD_MODE))
+		return;
+
+	if (sde_enc->input_handler && sde_enc->input_handler->private) {
+		input_unregister_handler(sde_enc->input_handler);
+		sde_enc->input_handler->private = NULL;
+	}
+
 }
 
 static int _sde_encoder_input_handler(

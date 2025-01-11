@@ -149,12 +149,12 @@ asmlinkage efi_status_t efi_handle_corrupted_x18(efi_status_t s, const char *f)
 	return s;
 }
 
-DEFINE_RAW_SPINLOCK(efi_rt_lock);
+DEFINE_SPINLOCK(efi_rt_lock);
 
 asmlinkage u64 *efi_rt_stack_top __ro_after_init;
 
 /* EFI requires 8 KiB of stack space for runtime services */
-static_assert(THREAD_SIZE >= SZ_8K);
+_Static_assert(THREAD_SIZE >= SZ_8K);
 
 static int __init arm64_efi_rt_init(void)
 {

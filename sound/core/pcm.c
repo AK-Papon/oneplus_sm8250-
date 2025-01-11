@@ -266,7 +266,6 @@ static char *snd_pcm_state_names[] = {
 	STATE(DRAINING),
 	STATE(PAUSED),
 	STATE(SUSPENDED),
-	STATE(DISCONNECTED),
 };
 
 static char *snd_pcm_access_names[] = {

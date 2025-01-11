@@ -383,14 +383,14 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 			 */
 			*target_pmd = *pmd;
 
-			addr = round_up(addr + 1, PMD_SIZE);
+			addr += PMD_SIZE;
 
 		} else if (level == PTI_CLONE_PTE) {
 
 			/* Walk the page-table down to the pte level */
 			pte = pte_offset_kernel(pmd, addr);
 			if (pte_none(*pte)) {
-				addr = round_up(addr + 1, PAGE_SIZE);
+				addr += PAGE_SIZE;
 				continue;
 			}
 
@@ -410,7 +410,7 @@ pti_clone_pgtable(unsigned long start, unsigned long end,
 			/* Clone the PTE */
 			*target_pte = *pte;
 
-			addr = round_up(addr + 1, PAGE_SIZE);
+			addr += PAGE_SIZE;
 
 		} else {
 			BUG();

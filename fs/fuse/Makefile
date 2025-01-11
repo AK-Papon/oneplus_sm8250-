@@ -7,3 +7,4 @@ obj-$(CONFIG_CUSE) += cuse.o
 
 fuse-objs := dev.o dir.o file.o inode.o control.o xattr.o acl.o
 fuse-objs += passthrough.o
+

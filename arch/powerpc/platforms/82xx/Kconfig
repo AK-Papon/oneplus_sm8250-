@@ -51,6 +51,7 @@ endif
 
 config PQ2ADS
 	bool
+	default n
 
 config 8260
 	bool

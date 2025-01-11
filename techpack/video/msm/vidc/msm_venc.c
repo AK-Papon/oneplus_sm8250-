@@ -2884,7 +2884,7 @@ int msm_venc_set_frame_qp(struct msm_vidc_inst *inst)
 	 *   Enable QP types which have been set by client.
 	 * When RC is OFF:
 	 *   I_QP value must be set by client.
-	 *   If QP value is invalid, then, assign default QP.
+	 *   If other QP value is invalid, then, assign I_QP value to it.
 	 */
 	if (inst->rc_type != RATE_CONTROL_OFF) {
 		if (!(inst->client_set_ctrls & CLIENT_SET_I_QP))
@@ -2900,7 +2900,7 @@ int msm_venc_set_frame_qp(struct msm_vidc_inst *inst)
 		if (!(inst->client_set_ctrls & CLIENT_SET_I_QP)) {
 			s_vpr_e(inst->sid,
 				"%s: Client value is not valid\n", __func__);
-			i_qp->val = DEFAULT_QP;
+			return -EINVAL;
 		}
 		if (!(inst->client_set_ctrls & CLIENT_SET_P_QP))
 			p_qp->val = i_qp->val;
@@ -4628,13 +4628,13 @@ int handle_all_intra_restrictions(struct msm_vidc_inst *inst)
 	fps_max = capability->cap[CAP_ALLINTRA_MAX_FPS].max;
 	s_vpr_h(inst->sid, "%s: rc_type %u, fps %u, fps_max %u\n",
 		__func__, inst->rc_type, n_fps, fps_max);
-	if (inst->all_intra && n_fps > fps_max) {
+		if (inst->all_intra && n_fps > fps_max) {
 		inst->clk_data.frame_rate = fps_max << 16;
 		n_fps = fps_max;
 		s_vpr_h(inst->sid,
 			"%s:cap2 frame rate to %u for allintra encoding",
 			__func__, inst->clk_data.frame_rate >> 16);
-	}
+		}
 	if ((inst->rc_type != V4L2_MPEG_VIDEO_BITRATE_MODE_VBR &&
 		inst->rc_type != RATE_CONTROL_OFF &&
 		inst->rc_type != RATE_CONTROL_LOSSLESS) ||

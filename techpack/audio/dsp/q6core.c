@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/kernel.h>
@@ -205,7 +204,7 @@ EXPORT_SYMBOL(q6core_send_uevent);
 static int parse_fwk_version_info(uint32_t *payload, uint16_t payload_size)
 {
 	size_t ver_size;
-	uint16_t num_services;
+	int num_services;
 
 	pr_debug("%s: Payload info num services %d\n",
 		 __func__, payload[4]);
@@ -475,14 +474,6 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 	case AVCS_CMD_RSP_LOAD_MODULES:
 		pr_debug("%s: Received AVCS_CMD_RSP_LOAD_MODULES\n",
 			 __func__);
-		if (!rsp_payload)
-			return -EINVAL;
-		if (data->payload_size != ((sizeof(struct avcs_load_unload_modules_sec_payload)
-			* rsp_payload->num_modules) + sizeof(uint32_t))) {
-			pr_err("%s: payload size greater than expected size %d\n",
-				__func__,data->payload_size);
-			return -EINVAL;
-		}
 		memcpy(rsp_payload, data->payload, data->payload_size);
 		q6core_lcl.avcs_module_resp_received = 1;
 		wake_up(&q6core_lcl.avcs_module_load_unload_wait);
@@ -749,44 +740,6 @@ int q6core_get_avcs_api_version_per_service(uint32_t service_id)
 EXPORT_SYMBOL(q6core_get_avcs_api_version_per_service);
 
 /**
- * q6core_get_avcs_avs_build_version_info - Get AVS build version information
- *
- * @build_major_version - pointer to build major version
- * @build_minor_version - pointer to build minor version
- * @build_branch_version - pointer to build branch version
- *
- * Returns 0 on success and error on failure
- */
-int q6core_get_avcs_avs_build_version_info(
-	uint32_t *build_major_version, uint32_t *build_minor_version,
-					uint32_t *build_branch_version)
-{
-
-	struct avcs_fwk_ver_info *cached_ver_info = NULL;
-	int ret = 0;
-
-	if (!build_major_version || !build_minor_version ||
-		!build_branch_version)
-		return -EINVAL;
-
-	ret = q6core_get_avcs_fwk_version();
-	if (ret < 0)
-		return ret;
-
-	cached_ver_info = q6core_lcl.q6core_avcs_ver_info.ver_info;
-
-	*build_major_version =
-			cached_ver_info->avcs_fwk_version.build_major_version;
-	*build_minor_version =
-			cached_ver_info->avcs_fwk_version.build_minor_version;
-	*build_branch_version =
-			cached_ver_info->avcs_fwk_version.build_branch_version;
-
-	return ret;
-}
-EXPORT_SYMBOL(q6core_get_avcs_avs_build_version_info);
-
-/**
  * core_set_license -
  *       command to set license for module
  *
@@ -1045,8 +998,6 @@ int32_t q6core_avcs_load_unload_modules(struct avcs_load_unload_modules_payload
 		return -ENOMEM;
 	}
 
-	rsp_payload->num_modules = num_modules;
-
 	memcpy((uint8_t *)mod + sizeof(struct apr_hdr) +
 		sizeof(struct avcs_load_unload_modules_meminfo),
 		payload, payload_size);
@@ -1101,7 +1052,6 @@ int32_t q6core_avcs_load_unload_modules(struct avcs_load_unload_modules_payload
 done:
 	kfree(mod);
 	kfree(rsp_payload);
-	rsp_payload = NULL;
 	mutex_unlock(&(q6core_lcl.cmd_lock));
 	return ret;
 }

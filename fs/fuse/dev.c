@@ -22,7 +22,6 @@
 #include <linux/swap.h>
 #include <linux/splice.h>
 #include <linux/sched.h>
-#include <linux/freezer.h>
 
 MODULE_ALIAS_MISCDEV(FUSE_MINOR);
 MODULE_ALIAS("devname:fuse");
@@ -334,10 +333,12 @@ static void queue_request(struct fuse_iqueue *fiq, struct fuse_req *req,
 	req->in.h.len = sizeof(struct fuse_in_header) +
 		len_args(req->in.numargs, (struct fuse_arg *) req->in.args);
 	list_add_tail(&req->list, &fiq->pending);
+
 	if (sync)
 		wake_up_sync(&fiq->waitq);
 	else
 		wake_up(&fiq->waitq);
+
 	kill_fasync(&fiq->fasync, SIGIO, POLL_IN);
 }
 
@@ -488,9 +489,7 @@ static void request_wait_answer(struct fuse_conn *fc, struct fuse_req *req)
 	 * Either request is already in userspace, or it was forced.
 	 * Wait it out.
 	 */
-	while (!test_bit(FR_FINISHED, &req->flags))
-		wait_event_freezable(req->waitq,
-				test_bit(FR_FINISHED, &req->flags));
+	wait_event(req->waitq, test_bit(FR_FINISHED, &req->flags));
 }
 
 static void __fuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
@@ -1690,11 +1689,9 @@ static int fuse_notify_store(struct fuse_conn *fc, unsigned int size,
 
 		this_num = min_t(unsigned, num, PAGE_SIZE - offset);
 		err = fuse_copy_page(cs, &page, offset, this_num, 0);
-		if (!PageUptodate(page) && !err && offset == 0 &&
-		    (this_num == PAGE_SIZE || file_size == end)) {
-			zero_user_segment(page, this_num, PAGE_SIZE);
+		if (!err && offset == 0 &&
+		    (this_num == PAGE_SIZE || file_size == end))
 			SetPageUptodate(page);
-		}
 		unlock_page(page);
 		put_page(page);
 
@@ -1911,6 +1908,7 @@ static ssize_t fuse_dev_do_write(struct fuse_dev *fud,
 	struct fuse_pqueue *fpq = &fud->pq;
 	struct fuse_req *req;
 	struct fuse_out_header oh;
+
 
 	if (nbytes < sizeof(struct fuse_out_header))
 		return -EINVAL;

@@ -1381,10 +1381,10 @@ static int hisi_sas_controller_reset(struct hisi_hba *hisi_hba)
 	int rc;
 
 	if (!hisi_hba->hw->soft_reset)
-		return -ENOENT;
+		return -1;
 
 	if (test_and_set_bit(HISI_SAS_RESET_BIT, &hisi_hba->flags))
-		return -EPERM;
+		return -1;
 
 	dev_info(dev, "controller resetting...\n");
 	hisi_sas_controller_reset_prepare(hisi_hba);

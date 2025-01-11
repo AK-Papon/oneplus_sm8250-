@@ -145,14 +145,7 @@ out:
 
 int amd_smn_read(u16 node, u32 address, u32 *value)
 {
-	int err = __amd_smn_rw(node, address, value, false);
-
-	if (PCI_POSSIBLE_ERROR(*value)) {
-		err = -ENODEV;
-		*value = 0;
-	}
-
-	return err;
+	return __amd_smn_rw(node, address, value, false);
 }
 EXPORT_SYMBOL_GPL(amd_smn_read);
 

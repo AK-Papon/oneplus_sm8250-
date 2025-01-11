@@ -89,6 +89,7 @@
 #include <linux/netfilter_ipv4.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <linux/netfilter/xt_qtaguid.h>
 
 #include <linux/uaccess.h>
 
@@ -122,6 +123,20 @@
 #include <net/l3mdev.h>
 
 #include <trace/events/sock.h>
+
+#ifdef CONFIG_ANDROID_PARANOID_NETWORK
+#include <linux/android_aid.h>
+
+static inline int current_has_network(void)
+{
+	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
+}
+#else
+static inline int current_has_network(void)
+{
+	return 1;
+}
+#endif
 
 int sysctl_reserved_port_bind __read_mostly = 1;
 
@@ -260,6 +275,9 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	if (protocol < 0 || protocol >= IPPROTO_MAX)
 		return -EINVAL;
 
+	if (!current_has_network())
+		return -EACCES;
+
 	sock->state = SS_UNCONNECTED;
 
 	/* Look for the requested type/protocol pair. */
@@ -308,8 +326,7 @@ lookup_protocol:
 	}
 
 	err = -EPERM;
-	if (sock->type == SOCK_RAW && !kern &&
-	    !ns_capable(net->user_ns, CAP_NET_RAW))
+	if (sock->type == SOCK_RAW && !kern && !capable(CAP_NET_RAW))
 		goto out_rcu_unlock;
 
 	sock->ops = answer->ops;
@@ -412,6 +429,9 @@ int inet_release(struct socket *sock)
 	if (sk) {
 		long timeout;
 
+#ifdef CONFIG_NETFILTER_XT_MATCH_QTAGUID
+		qtaguid_untag(sock, true);
+#endif
 		/* Applications forget to leave groups before exiting */
 		ip_mc_drop_socket(sk);
 
@@ -555,27 +575,22 @@ int inet_dgram_connect(struct socket *sock, struct sockaddr *uaddr,
 		       int addr_len, int flags)
 {
 	struct sock *sk = sock->sk;
-	const struct proto *prot;
 	int err;
 
 	if (addr_len < sizeof(uaddr->sa_family))
 		return -EINVAL;
-
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	prot = READ_ONCE(sk->sk_prot);
-
 	if (uaddr->sa_family == AF_UNSPEC)
-		return prot->disconnect(sk, flags);
+		return sk->sk_prot->disconnect(sk, flags);
 
 	if (BPF_CGROUP_PRE_CONNECT_ENABLED(sk)) {
-		err = prot->pre_connect(sk, uaddr, addr_len);
+		err = sk->sk_prot->pre_connect(sk, uaddr, addr_len);
 		if (err)
 			return err;
 	}
 
 	if (!inet_sk(sk)->inet_num && inet_autobind(sk))
 		return -EAGAIN;
-	return prot->connect(sk, uaddr, addr_len);
+	return sk->sk_prot->connect(sk, uaddr, addr_len);
 }
 EXPORT_SYMBOL(inet_dgram_connect);
 
@@ -736,11 +751,10 @@ EXPORT_SYMBOL(inet_stream_connect);
 int inet_accept(struct socket *sock, struct socket *newsock, int flags,
 		bool kern)
 {
-	struct sock *sk1 = sock->sk, *sk2;
+	struct sock *sk1 = sock->sk;
 	int err = -EINVAL;
+	struct sock *sk2 = sk1->sk_prot->accept(sk1, flags, &err, kern);
 
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	sk2 = READ_ONCE(sk1->sk_prot)->accept(sk1, flags, &err, kern);
 	if (!sk2)
 		goto do_err;
 
@@ -797,27 +811,6 @@ EXPORT_SYMBOL(inet_getname);
 int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 {
 	struct sock *sk = sock->sk;
-	const struct proto *prot;
-
-	sock_rps_record_flow(sk);
-
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	prot = READ_ONCE(sk->sk_prot);
-
-	/* We may need to bind the socket. */
-	if (!inet_sk(sk)->inet_num && !prot->no_autobind &&
-	    inet_autobind(sk))
-		return -EAGAIN;
-
-	return prot->sendmsg(sk, msg, size);
-}
-EXPORT_SYMBOL(inet_sendmsg);
-
-ssize_t inet_sendpage(struct socket *sock, struct page *page, int offset,
-		      size_t size, int flags)
-{
-	struct sock *sk = sock->sk;
-	const struct proto *prot;
 
 	sock_rps_record_flow(sk);
 
@@ -826,10 +819,24 @@ ssize_t inet_sendpage(struct socket *sock, struct page *page, int offset,
 	    inet_autobind(sk))
 		return -EAGAIN;
 
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	prot = READ_ONCE(sk->sk_prot);
-	if (prot->sendpage)
-		return prot->sendpage(sk, page, offset, size, flags);
+	return sk->sk_prot->sendmsg(sk, msg, size);
+}
+EXPORT_SYMBOL(inet_sendmsg);
+
+ssize_t inet_sendpage(struct socket *sock, struct page *page, int offset,
+		      size_t size, int flags)
+{
+	struct sock *sk = sock->sk;
+
+	sock_rps_record_flow(sk);
+
+	/* We may need to bind the socket. */
+	if (!inet_sk(sk)->inet_num && !sk->sk_prot->no_autobind &&
+	    inet_autobind(sk))
+		return -EAGAIN;
+
+	if (sk->sk_prot->sendpage)
+		return sk->sk_prot->sendpage(sk, page, offset, size, flags);
 	return sock_no_sendpage(sock, page, offset, size, flags);
 }
 EXPORT_SYMBOL(inet_sendpage);
@@ -838,17 +845,14 @@ int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		 int flags)
 {
 	struct sock *sk = sock->sk;
-	const struct proto *prot;
 	int addr_len = 0;
 	int err;
 
 	if (likely(!(flags & MSG_ERRQUEUE)))
 		sock_rps_record_flow(sk);
 
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	prot = READ_ONCE(sk->sk_prot);
-	err = prot->recvmsg(sk, msg, size, flags & MSG_DONTWAIT,
-			    flags & ~MSG_DONTWAIT, &addr_len);
+	err = sk->sk_prot->recvmsg(sk, msg, size, flags & MSG_DONTWAIT,
+				   flags & ~MSG_DONTWAIT, &addr_len);
 	if (err >= 0)
 		msg->msg_namelen = addr_len;
 	return err;

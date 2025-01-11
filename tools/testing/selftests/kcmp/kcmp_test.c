@@ -88,9 +88,7 @@ int main(int argc, char **argv)
 		int pid2 = getpid();
 		int ret;
 
-		ksft_print_header();
-
-		fd2 = open(kpath, O_RDWR);
+		fd2 = open(kpath, O_RDWR, 0644);
 		if (fd2 < 0) {
 			perror("Can't open file");
 			ksft_exit_fail();
@@ -154,6 +152,7 @@ int main(int argc, char **argv)
 			ksft_inc_pass_cnt();
 		}
 
+		ksft_print_cnts();
 
 		if (ret)
 			ksft_exit_fail();
@@ -163,5 +162,5 @@ int main(int argc, char **argv)
 
 	waitpid(pid2, &status, P_ALL);
 
-	return 0;
+	return ksft_exit_pass();
 }

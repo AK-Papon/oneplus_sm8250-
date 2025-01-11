@@ -6,7 +6,7 @@
 #include "zdata.h"
 #include "compress.h"
 #include <linux/prefetch.h>
-#include <linux/cpuhotplug.h>
+
 #include <trace/events/erofs.h>
 
 /*
@@ -124,128 +124,24 @@ typedef tagptr1_t compressed_page_t;
 
 static struct workqueue_struct *z_erofs_workqueue __read_mostly;
 
-#ifdef CONFIG_EROFS_FS_PCPU_KTHREAD
-static struct kthread_worker __rcu **z_erofs_pcpu_workers;
-
-static void erofs_destroy_percpu_workers(void)
-{
-	struct kthread_worker *worker;
-	unsigned int cpu;
-
-	for_each_possible_cpu(cpu) {
-		worker = rcu_dereference_protected(
-					z_erofs_pcpu_workers[cpu], 1);
-		rcu_assign_pointer(z_erofs_pcpu_workers[cpu], NULL);
-		if (worker)
-			kthread_destroy_worker(worker);
-	}
-	kfree(z_erofs_pcpu_workers);
-}
-
-static struct kthread_worker *erofs_init_percpu_worker(int cpu)
-{
-	struct kthread_worker *worker =
-		kthread_create_worker_on_cpu(cpu, 0, "erofs_worker/%u", cpu);
-
-	if (IS_ERR(worker))
-		return worker;
-	if (IS_ENABLED(CONFIG_EROFS_FS_PCPU_KTHREAD_HIPRI))
-		sched_set_fifo_low(worker->task);
-	else
-		sched_set_normal(worker->task, 0);
-	return worker;
-}
-
-static int erofs_init_percpu_workers(void)
-{
-	struct kthread_worker *worker;
-	unsigned int cpu;
-
-	z_erofs_pcpu_workers = kcalloc(num_possible_cpus(),
-			sizeof(struct kthread_worker *), GFP_ATOMIC);
-	if (!z_erofs_pcpu_workers)
-		return -ENOMEM;
-
-	for_each_online_cpu(cpu) {	/* could miss cpu{off,on}line? */
-		worker = erofs_init_percpu_worker(cpu);
-		if (!IS_ERR(worker))
-			rcu_assign_pointer(z_erofs_pcpu_workers[cpu], worker);
-	}
-	return 0;
-}
-#else
-static inline void erofs_destroy_percpu_workers(void) {}
-static inline int erofs_init_percpu_workers(void) { return 0; }
-#endif
-
-#if defined(CONFIG_HOTPLUG_CPU) && defined(CONFIG_EROFS_FS_PCPU_KTHREAD)
-static DEFINE_SPINLOCK(z_erofs_pcpu_worker_lock);
-static enum cpuhp_state erofs_cpuhp_state;
-
-static int erofs_cpu_online(unsigned int cpu)
-{
-	struct kthread_worker *worker, *old;
-
-	worker = erofs_init_percpu_worker(cpu);
-	if (IS_ERR(worker))
-		return PTR_ERR(worker);
-
-	spin_lock(&z_erofs_pcpu_worker_lock);
-	old = rcu_dereference_protected(z_erofs_pcpu_workers[cpu],
-			lockdep_is_held(&z_erofs_pcpu_worker_lock));
-	if (!old)
-		rcu_assign_pointer(z_erofs_pcpu_workers[cpu], worker);
-	spin_unlock(&z_erofs_pcpu_worker_lock);
-	if (old)
-		kthread_destroy_worker(worker);
-	return 0;
-}
-
-static int erofs_cpu_offline(unsigned int cpu)
-{
-	struct kthread_worker *worker;
-
-	spin_lock(&z_erofs_pcpu_worker_lock);
-	worker = rcu_dereference_protected(z_erofs_pcpu_workers[cpu],
-			lockdep_is_held(&z_erofs_pcpu_worker_lock));
-	rcu_assign_pointer(z_erofs_pcpu_workers[cpu], NULL);
-	spin_unlock(&z_erofs_pcpu_worker_lock);
-
-	synchronize_rcu();
-	if (worker)
-		kthread_destroy_worker(worker);
-	return 0;
-}
-
-static int erofs_cpu_hotplug_init(void)
-{
-	int state;
-
-	state = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN,
-			"fs/erofs:online", erofs_cpu_online, erofs_cpu_offline);
-	if (state < 0)
-		return state;
-
-	erofs_cpuhp_state = state;
-	return 0;
-}
-
-static void erofs_cpu_hotplug_destroy(void)
-{
-	if (erofs_cpuhp_state)
-		cpuhp_remove_state_nocalls(erofs_cpuhp_state);
-}
-#else /* !CONFIG_HOTPLUG_CPU || !CONFIG_EROFS_FS_PCPU_KTHREAD */
-static inline int erofs_cpu_hotplug_init(void) { return 0; }
-static inline void erofs_cpu_hotplug_destroy(void) {}
-#endif
-
 void z_erofs_exit_zip_subsystem(void)
 {
-	erofs_cpu_hotplug_destroy();
-	erofs_destroy_percpu_workers();
 	destroy_workqueue(z_erofs_workqueue);
 	z_erofs_destroy_pcluster_pool();
+}
+
+static inline int z_erofs_init_workqueue(void)
+{
+	const unsigned int onlinecpus = num_possible_cpus();
+
+	/*
+	 * no need to spawn too many threads, limiting threads could minimum
+	 * scheduling overhead, perhaps per-CPU threads should be better?
+	 */
+	z_erofs_workqueue = alloc_workqueue("erofs_unzipd",
+					    WQ_UNBOUND | WQ_HIGHPRI,
+					    onlinecpus + onlinecpus / 4);
+	return z_erofs_workqueue ? 0 : -ENOMEM;
 }
 
 int __init z_erofs_init_zip_subsystem(void)
@@ -253,31 +149,10 @@ int __init z_erofs_init_zip_subsystem(void)
 	int err = z_erofs_create_pcluster_pool();
 
 	if (err)
-		goto out_error_pcluster_pool;
-
-	z_erofs_workqueue = alloc_workqueue("erofs_worker",
-			WQ_UNBOUND | WQ_HIGHPRI, num_possible_cpus());
-	if (!z_erofs_workqueue) {
-		err = -ENOMEM;
-		goto out_error_workqueue_init;
-	}
-
-	err = erofs_init_percpu_workers();
+		return err;
+	err = z_erofs_init_workqueue();
 	if (err)
-		goto out_error_pcpu_worker;
-
-	err = erofs_cpu_hotplug_init();
-	if (err < 0)
-		goto out_error_cpuhp_init;
-	return err;
-
-out_error_cpuhp_init:
-	erofs_destroy_percpu_workers();
-out_error_pcpu_worker:
-	destroy_workqueue(z_erofs_workqueue);
-out_error_workqueue_init:
-	z_erofs_destroy_pcluster_pool();
-out_error_pcluster_pool:
+		z_erofs_destroy_pcluster_pool();
 	return err;
 }
 
@@ -341,6 +216,7 @@ struct z_erofs_decompress_frontend {
 	struct z_erofs_collector clt;
 	struct erofs_map_blocks map;
 
+	bool readahead;
 	/* used for applying cache strategy on the fly */
 	bool backmost;
 	erofs_off_t headoffset;
@@ -455,8 +331,11 @@ int erofs_try_to_free_all_cached_pages(struct erofs_sb_info *sbi,
 
 		/* barrier is implied in the following 'unlock_page' */
 		WRITE_ONCE(pcl->compressed_pages[i], NULL);
-		detach_page_private(page);
+
+		set_page_private(page, 0);
+		ClearPagePrivate(page);
 		unlock_page(page);
+		put_page(page);
 	}
 	return 0;
 }
@@ -479,8 +358,11 @@ int erofs_try_to_free_cached_page(struct address_space *mapping,
 		}
 		erofs_workgroup_unfreeze(&pcl->obj, 1);
 
-		if (ret)
-			detach_page_private(page);
+		if (ret) {
+			set_page_private(page, 0);
+			ClearPagePrivate(page);
+			put_page(page);
+		}
 	}
 	return ret;
 }
@@ -832,11 +714,9 @@ hitted:
 	tight &= (clt->mode >= COLLECT_PRIMARY_HOOKED &&
 		  clt->mode != COLLECT_PRIMARY_FOLLOWED_NOINPLACE);
 
-	cur = end - min_t(erofs_off_t, offset + end - map->m_la, end);
+	cur = end - min_t(unsigned int, offset + end - map->m_la, end);
 	if (!(map->m_flags & EROFS_MAP_MAPPED)) {
 		zero_user_segment(page, cur, end);
-		++spiltted;
-		tight = false;
 		goto next_part;
 	}
 
@@ -897,12 +777,6 @@ err_out:
 }
 
 static void z_erofs_decompressqueue_work(struct work_struct *work);
-#ifdef CONFIG_EROFS_FS_PCPU_KTHREAD
-static void z_erofs_decompressqueue_kthread_work(struct kthread_work *work)
-{
-	z_erofs_decompressqueue_work((struct work_struct *)work);
-}
-#endif
 static void z_erofs_decompress_kickoff(struct z_erofs_decompressqueue *io,
 				       bool sync, int bios)
 {
@@ -910,9 +784,12 @@ static void z_erofs_decompress_kickoff(struct z_erofs_decompressqueue *io,
 
 	/* wake up the caller thread for sync decompression */
 	if (sync) {
-		if (!atomic_add_return(bios, &io->pending_bios))
-			complete(&io->u.done);
+		unsigned long flags;
 
+		spin_lock_irqsave(&io->u.wait.lock, flags);
+		if (!atomic_add_return(bios, &io->pending_bios))
+			wake_up_locked(&io->u.wait);
+		spin_unlock_irqrestore(&io->u.wait.lock, flags);
 		return;
 	}
 
@@ -920,22 +797,7 @@ static void z_erofs_decompress_kickoff(struct z_erofs_decompressqueue *io,
 		return;
 	/* Use workqueue and sync decompression for atomic contexts only */
 	if (in_atomic() || irqs_disabled()) {
-#ifdef CONFIG_EROFS_FS_PCPU_KTHREAD
-		struct kthread_worker *worker;
-
-		rcu_read_lock();
-		worker = rcu_dereference(
-				z_erofs_pcpu_workers[raw_smp_processor_id()]);
-		if (!worker) {
-			INIT_WORK(&io->u.work, z_erofs_decompressqueue_work);
-			queue_work(z_erofs_workqueue, &io->u.work);
-		} else {
-			kthread_queue_work(worker, &io->u.kthread_work);
-		}
-		rcu_read_unlock();
-#else
 		queue_work(z_erofs_workqueue, &io->u.work);
-#endif
 		sbi->readahead_sync_decompress = true;
 		return;
 	}
@@ -1323,9 +1185,8 @@ out_tocache:
 		set_page_private(page, Z_EROFS_SHORTLIVED_PAGE);
 		goto out;
 	}
-	attach_page_private(page, pcl);
-	/* drop a refcount added by allocpage (then we have 2 refs here) */
-	put_page(page);
+	set_page_private(page, (unsigned long)pcl);
+	SetPagePrivate(page);
 
 out:	/* the only exit (for tracing and debugging) */
 	return page;
@@ -1343,16 +1204,11 @@ jobqueue_init(struct super_block *sb,
 			*fg = true;
 			goto fg_out;
 		}
-#ifdef CONFIG_EROFS_FS_PCPU_KTHREAD
-		kthread_init_work(&q->u.kthread_work,
-				  z_erofs_decompressqueue_kthread_work);
-#else
 		INIT_WORK(&q->u.work, z_erofs_decompressqueue_work);
-#endif
 	} else {
 fg_out:
 		q = fgq;
-		init_completion(&fgq->u.done);
+		init_waitqueue_head(&fgq->u.wait);
 		atomic_set(&fgq->pending_bios, 0);
 	}
 	q->sb = sb;
@@ -1401,7 +1257,7 @@ static void move_to_bypass_jobqueue(struct z_erofs_pcluster *pcl,
 }
 
 static void z_erofs_submit_queue(struct super_block *sb,
-				 z_erofs_next_pcluster_t owned_head,
+				 struct z_erofs_decompress_frontend *f,
 				 struct list_head *pagepool,
 				 struct z_erofs_decompressqueue *fgq,
 				 bool *force_fg)
@@ -1410,6 +1266,7 @@ static void z_erofs_submit_queue(struct super_block *sb,
 	z_erofs_next_pcluster_t qtail[NR_JOBQUEUES];
 	struct z_erofs_decompressqueue *q[NR_JOBQUEUES];
 	void *bi_private;
+	z_erofs_next_pcluster_t owned_head = f->clt.owned_head;
 	/* since bio will be NULL, no need to initialize last_index */
 	pgoff_t last_index;
 	unsigned int nr_bios = 0;
@@ -1465,6 +1322,8 @@ submit_bio_retry:
 					LOG_SECTORS_PER_BLOCK;
 				bio->bi_private = bi_private;
 				bio->bi_opf = REQ_OP_READ;
+				if (f->readahead)
+					bio->bi_opf |= REQ_RAHEAD;
 				++nr_bios;
 			}
 
@@ -1486,7 +1345,7 @@ submit_bio_retry:
 
 	/*
 	 * although background is preferred, no one is pending for submission.
-	 * don't issue decompression but drop it directly instead.
+	 * don't issue workqueue for decompression but drop it directly instead.
 	 */
 	if (!*force_fg && !nr_bios) {
 		kvfree(q[JQ_SUBMIT]);
@@ -1496,14 +1355,14 @@ submit_bio_retry:
 }
 
 static void z_erofs_runqueue(struct super_block *sb,
-			     struct z_erofs_collector *clt,
+			     struct z_erofs_decompress_frontend *f,
 			     struct list_head *pagepool, bool force_fg)
 {
 	struct z_erofs_decompressqueue io[NR_JOBQUEUES];
 
-	if (clt->owned_head == Z_EROFS_PCLUSTER_TAIL)
+	if (f->clt.owned_head == Z_EROFS_PCLUSTER_TAIL)
 		return;
-	z_erofs_submit_queue(sb, clt->owned_head, pagepool, io, &force_fg);
+	z_erofs_submit_queue(sb, f, pagepool, io, &force_fg);
 
 	/* handle bypass queue (no i/o pclusters) immediately */
 	z_erofs_decompress_queue(&io[JQ_BYPASS], pagepool);
@@ -1512,7 +1371,8 @@ static void z_erofs_runqueue(struct super_block *sb,
 		return;
 
 	/* wait until all bios are completed */
-	wait_for_completion_io(&io[JQ_SUBMIT].u.done);
+	io_wait_event(io[JQ_SUBMIT].u.wait,
+		      !atomic_read(&io[JQ_SUBMIT].pending_bios));
 
 	/* handle synchronous decompress queue in the caller context */
 	z_erofs_decompress_queue(&io[JQ_SUBMIT], pagepool);
@@ -1533,7 +1393,7 @@ static int z_erofs_readpage(struct file *file, struct page *page)
 	(void)z_erofs_collector_end(&f.clt);
 
 	/* if some compressed cluster ready, need submit them anyway */
-	z_erofs_runqueue(inode->i_sb, &f.clt, &pagepool, true);
+	z_erofs_runqueue(inode->i_sb, &f, &pagepool, true);
 
 	if (err)
 		erofs_err(inode->i_sb, "failed to read, err [%d]", err);
@@ -1603,7 +1463,7 @@ static int z_erofs_readpages(struct file *filp, struct address_space *mapping,
 
 	(void)z_erofs_collector_end(&f.clt);
 
-	z_erofs_runqueue(inode->i_sb, &f.clt, &pagepool, sync);
+	z_erofs_runqueue(inode->i_sb, &f, &pagepool, sync);
 
 	if (f.map.mpage)
 		put_page(f.map.mpage);

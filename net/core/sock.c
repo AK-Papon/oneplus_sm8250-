@@ -531,7 +531,7 @@ static int sock_setbindtodevice(struct sock *sk, char __user *optval,
 
 	/* Sorry... */
 	ret = -EPERM;
-	if (sk->sk_bound_dev_if && !ns_capable(net->user_ns, CAP_NET_RAW))
+	if (!ns_capable(net->user_ns, CAP_NET_RAW))
 		goto out;
 
 	ret = -EINVAL;
@@ -2804,13 +2804,6 @@ void sk_stop_timer(struct sock *sk, struct timer_list* timer)
 }
 EXPORT_SYMBOL(sk_stop_timer);
 
-void sk_stop_timer_sync(struct sock *sk, struct timer_list *timer)
-{
-	if (del_timer_sync(timer))
-		__sock_put(sk);
-}
-EXPORT_SYMBOL(sk_stop_timer_sync);
-
 void sock_init_data_uid(struct socket *sock, struct sock *sk, kuid_t uid)
 {
 	sk_init_common(sk);
@@ -3073,8 +3066,7 @@ int sock_common_getsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	return READ_ONCE(sk->sk_prot)->getsockopt(sk, level, optname, optval, optlen);
+	return sk->sk_prot->getsockopt(sk, level, optname, optval, optlen);
 }
 EXPORT_SYMBOL(sock_common_getsockopt);
 
@@ -3115,8 +3107,7 @@ int sock_common_setsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 
-	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
-	return READ_ONCE(sk->sk_prot)->setsockopt(sk, level, optname, optval, optlen);
+	return sk->sk_prot->setsockopt(sk, level, optname, optval, optlen);
 }
 EXPORT_SYMBOL(sock_common_setsockopt);
 

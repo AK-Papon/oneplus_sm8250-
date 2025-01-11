@@ -3791,15 +3791,11 @@ static inline bool zone_watermark_fast(struct zone *z, unsigned int order,
 	 * need to be calculated.
 	 */
 	if (!order) {
-		long usable_free;
-		long reserved;
+		long fast_free;
 
-		usable_free = free_pages;
-		reserved = __zone_watermark_unusable_free(z, 0, alloc_flags);
-
-		/* reserved may over estimate high-atomic reserves. */
-		usable_free -= min(usable_free, reserved);
-		if (usable_free > mark + z->lowmem_reserve[classzone_idx])
+		fast_free = free_pages;
+		fast_free -= __zone_watermark_unusable_free(z, 0, alloc_flags);
+		if (fast_free > mark + z->lowmem_reserve[classzone_idx])
 			return true;
 	}
 
@@ -4981,9 +4977,7 @@ retry:
 	 * implementation of the compaction depends on the sufficient amount
 	 * of free memory (see __compaction_suitable)
 	 */
-	if ((did_some_progress > 0 ||
-			IS_ENABLED(CONFIG_HAVE_LOW_MEMORY_KILLER)) &&
-			can_compact &&
+	if (did_some_progress > 0 && can_compact &&
 			should_compact_retry(ac, order, alloc_flags,
 				compact_result, &compact_priority,
 				&compaction_retries))

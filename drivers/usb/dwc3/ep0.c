@@ -258,10 +258,7 @@ void dwc3_ep0_stall_and_restart(struct dwc3 *dwc)
 		struct dwc3_request	*req;
 
 		req = next_request(&dep->pending_list);
-		if (!dwc->connected)
-			dwc3_gadget_giveback(dep, req, -ESHUTDOWN);
-		else
-			dwc3_gadget_giveback(dep, req, -ECONNRESET);
+		dwc3_gadget_giveback(dep, req, -ECONNRESET);
 	}
 
 	dwc->ep0state = EP0_SETUP_PHASE;

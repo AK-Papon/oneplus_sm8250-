@@ -242,9 +242,6 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 
 	sched_clock_idle_wakeup_event();
 	time_end = ns_to_ktime(local_clock());
-#ifdef CONFIG_OPLUS_FEATURE_GAME_OPT
-	g_time_in_state_update_idle(dev->cpu, 0);
-#endif
 	trace_cpu_idle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */
@@ -260,17 +257,17 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	if (!cpuidle_state_is_coupled(drv, index))
 		local_irq_enable();
 
-	diff = ktime_us_delta(time_end, time_start);
-	if (diff > INT_MAX)
-		diff = INT_MAX;
-
-	dev->last_residency = (int) diff;
-
 	if (entered_state >= 0) {
-		/* Update cpuidle counters */
-		/* This can be moved to within driver enter routine
+		/*
+		 * Update cpuidle counters
+		 * This can be moved to within driver enter routine,
 		 * but that results in multiple copies of same code.
 		 */
+		diff = ktime_us_delta(time_end, time_start);
+		if (diff > INT_MAX)
+			diff = INT_MAX;
+
+		dev->last_residency = (int)diff;
 		dev->states_usage[entered_state].time += dev->last_residency;
 		dev->states_usage[entered_state].usage++;
 	} else {
@@ -666,27 +663,6 @@ int cpuidle_register(struct cpuidle_driver *drv,
 EXPORT_SYMBOL_GPL(cpuidle_register);
 
 #ifdef CONFIG_SMP
-
-static void wake_up_idle_cpus(void *v)
-{
-	int cpu;
-	struct cpumask cpus;
-
-	preempt_disable();
-	if (v) {
-		cpumask_andnot(&cpus, v, cpu_isolated_mask);
-		cpumask_and(&cpus, &cpus, cpu_online_mask);
-	} else
-		cpumask_andnot(&cpus, cpu_online_mask, cpu_isolated_mask);
-
-	for_each_cpu(cpu, &cpus) {
-		if (cpu == smp_processor_id())
-			continue;
-		wake_up_if_idle(cpu);
-	}
-	preempt_enable();
-}
-
 /*
  * This function gets called when a part of the kernel has a new latency
  * requirement.  This means we need to get only those processors out of their
@@ -696,7 +672,6 @@ static void wake_up_idle_cpus(void *v)
 static int cpuidle_latency_notify(struct notifier_block *b,
 		unsigned long l, void *v)
 {
-	wake_up_idle_cpus(v);
 	return NOTIFY_OK;
 }
 

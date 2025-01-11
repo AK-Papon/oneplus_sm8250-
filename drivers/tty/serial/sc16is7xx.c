@@ -489,28 +489,16 @@ static bool sc16is7xx_regmap_precious(struct device *dev, unsigned int reg)
 	return false;
 }
 
-/*
- * Configure programmable baud rate generator (divisor) according to the
- * desired baud rate.
- *
- * From the datasheet, the divisor is computed according to:
- *
- *              XTAL1 input frequency
- *             -----------------------
- *                    prescaler
- * divisor = ---------------------------
- *            baud-rate x sampling-rate
- */
 static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 {
 	struct sc16is7xx_port *s = dev_get_drvdata(port->dev);
 	u8 lcr;
-	unsigned int prescaler = 1;
+	u8 prescaler = 0;
 	unsigned long clk = port->uartclk, div = clk / 16 / baud;
 
-	if (div >= BIT(16)) {
-		prescaler = 4;
-		div /= prescaler;
+	if (div > 0xffff) {
+		prescaler = SC16IS7XX_MCR_CLKSEL_BIT;
+		div /= 4;
 	}
 
 	/* In an amazing feat of design, the Enhanced Features Register shares
@@ -545,10 +533,9 @@ static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 
 	mutex_unlock(&s->efr_lock);
 
-	/* If bit MCR_CLKSEL is set, the divide by 4 prescaler is activated. */
 	sc16is7xx_port_update(port, SC16IS7XX_MCR_REG,
 			      SC16IS7XX_MCR_CLKSEL_BIT,
-			      prescaler == 1 ? 0 : SC16IS7XX_MCR_CLKSEL_BIT);
+			      prescaler);
 
 	/* Open the LCR divisors for configuration */
 	sc16is7xx_port_write(port, SC16IS7XX_LCR_REG,
@@ -563,7 +550,7 @@ static int sc16is7xx_set_baud(struct uart_port *port, int baud)
 	/* Put LCR back to the normal mode */
 	sc16is7xx_port_write(port, SC16IS7XX_LCR_REG, lcr);
 
-	return DIV_ROUND_CLOSEST((clk / prescaler) / 16, div);
+	return DIV_ROUND_CLOSEST(clk / 16, div);
 }
 
 static void sc16is7xx_handle_rx(struct uart_port *port, unsigned int rxlen,
@@ -708,18 +695,6 @@ static bool sc16is7xx_port_irq(struct sc16is7xx_port *s, int portno)
 		case SC16IS7XX_IIR_RTOI_SRC:
 		case SC16IS7XX_IIR_XOFFI_SRC:
 			rxlen = sc16is7xx_port_read(port, SC16IS7XX_RXLVL_REG);
-
-			/*
-			 * There is a silicon bug that makes the chip report a
-			 * time-out interrupt but no data in the FIFO. This is
-			 * described in errata section 18.1.4.
-			 *
-			 * When this happens, read one byte from the FIFO to
-			 * clear the interrupt.
-			 */
-			if (iir == SC16IS7XX_IIR_RTOI_SRC && !rxlen)
-				rxlen = 1;
-
 			if (rxlen)
 				sc16is7xx_handle_rx(port, rxlen, iir);
 			break;

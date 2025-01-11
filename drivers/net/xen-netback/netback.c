@@ -463,8 +463,6 @@ static void xenvif_get_requests(struct xenvif_queue *queue,
 		xenvif_tx_create_map_op(queue, pending_idx, txp,
 				        txp == first ? extra_count : 0, gop);
 		frag_set_pending_idx(&frags[shinfo->nr_frags], pending_idx);
-		++shinfo->nr_frags;
-		++gop;
 
 		if (txp == first)
 			txp = txfrags;
@@ -490,20 +488,12 @@ static void xenvif_get_requests(struct xenvif_queue *queue,
 						gop);
 			frag_set_pending_idx(&frags[shinfo->nr_frags],
 					     pending_idx);
-			++shinfo->nr_frags;
-			++gop;
 		}
 
-		if (shinfo->nr_frags) {
-			skb_shinfo(skb)->frag_list = nskb;
-			nskb = NULL;
-		}
-	}
-
-	if (nskb) {
+		skb_shinfo(skb)->frag_list = nskb;
+	} else if (nskb) {
 		/* A frag_list skb was allocated but it is no longer needed
-		 * because enough slots were converted to copy ops above or some
-		 * were empty.
+		 * because enough slots were converted to copy ops above.
 		 */
 		kfree_skb(nskb);
 	}

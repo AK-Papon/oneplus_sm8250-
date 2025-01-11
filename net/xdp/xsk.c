@@ -515,8 +515,6 @@ static int xsk_setsockopt(struct socket *sock, int level, int optname,
 		struct xdp_umem_reg mr;
 		struct xdp_umem *umem;
 
-		if (optlen < sizeof(mr))
-			return -EINVAL;
 		if (copy_from_user(&mr, optval, sizeof(mr)))
 			return -EFAULT;
 
@@ -544,8 +542,6 @@ static int xsk_setsockopt(struct socket *sock, int level, int optname,
 		struct xsk_queue **q;
 		int entries;
 
-		if (optlen < sizeof(entries))
-			return -EINVAL;
 		if (copy_from_user(&entries, optval, sizeof(entries)))
 			return -EFAULT;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * drivers/mmc/host/sdhci-msm.c - Qualcomm Technologies, Inc. MSM SDHCI Platform
  * driver source file
@@ -5042,44 +5042,6 @@ static int sdhci_msm_notify_load(struct sdhci_host *host, enum mmc_load state)
 	return 0;
 }
 
-static int sdhci_msm_gcc_reset(struct device *dev, struct sdhci_host *host)
-{
-
-	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
-	struct sdhci_msm_host *msm_host = pltfm_host->priv;
-	struct reset_control *reset = msm_host->core_reset;
-	int ret = -EOPNOTSUPP;
-
-	if (!reset) {
-		dev_err(dev, "unable to acquire core_reset\n");
-		goto out;
-	}
-
-	ret = reset_control_assert(reset);
-	if (ret) {
-		dev_err(dev, "core_reset assert failed %d\n", ret);
-		goto out;
-	}
-
-	/*
-	 * The hardware requirement for delay between assert/deassert
-	 * is at least 3-4 sleep clock (32.7KHz) cycles, which comes to
-	 * ~125us (4/32768). To be on the safe side add 200us delay.
-	 */
-	usleep_range(200, 210);
-
-	ret = reset_control_deassert(reset);
-	if (ret) {
-		dev_err(dev, "core_reset deassert failed %d\n", ret);
-		goto out;
-	}
-
-	usleep_range(200, 210);
-
-out:
-	return ret;
-}
-
 static void sdhci_msm_hw_reset(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
@@ -5101,10 +5063,28 @@ static void sdhci_msm_hw_reset(struct sdhci_host *host)
 		host->mmc->cqe_enabled = false;
 	}
 
-	sdhci_msm_gcc_reset(&pdev->dev, host);
+	ret = reset_control_assert(msm_host->core_reset);
+	if (ret) {
+		dev_err(&pdev->dev, "%s: core_reset assert failed, err = %d\n",
+				__func__, ret);
+		goto out;
+	}
+
+	/*
+	 * The hardware requirement for delay between assert/deassert
+	 * is at least 3-4 sleep clock (32.7KHz) cycles, which comes to
+	 * ~125us (4/32768). To be on the safe side add 200us delay.
+	 */
+	usleep_range(200, 210);
+
+	ret = reset_control_deassert(msm_host->core_reset);
+	if (ret)
+		dev_err(&pdev->dev, "%s: core_reset deassert failed, err = %d\n",
+				__func__, ret);
+
 	sdhci_msm_registers_restore(host);
 	msm_host->reg_store = false;
-
+out:
 	return;
 }
 
@@ -5431,7 +5411,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		goto pltfm_free;
 	}
 
-	sdhci_msm_gcc_reset(&pdev->dev, host);
 	/* Setup Clocks */
 
 	/* Setup SDCC bus voter clock. */
@@ -5632,45 +5611,11 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	 */
 	mb();
 
-	/*
-	 * Following are the deviations from SDHC spec v3.0 -
-	 * 1. Card detection is handled using separate GPIO.
-	 * 2. Bus power control is handled by interacting with PMIC.
-	 */
-	host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
-	host->quirks |= SDHCI_QUIRK_SINGLE_POWER_WRITE;
-	host->quirks |= SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN;
-	host->quirks |= SDHCI_QUIRK_MULTIBLOCK_READ_ACMD12;
-	host->quirks |= SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC;
-	host->quirks2 |= SDHCI_QUIRK2_ALWAYS_USE_BASE_CLOCK;
-	host->quirks2 |= SDHCI_QUIRK2_IGNORE_DATATOUT_FOR_R1BCMD;
-	host->quirks2 |= SDHCI_QUIRK2_BROKEN_PRESET_VALUE;
-	host->quirks2 |= SDHCI_QUIRK2_USE_RESERVED_MAX_TIMEOUT;
-	host->quirks2 |= SDHCI_QUIRK2_NON_STANDARD_TUNING;
-	host->quirks2 |= SDHCI_QUIRK2_USE_PIO_FOR_EMMC_TUNING;
-
-	if (host->quirks2 & SDHCI_QUIRK2_ALWAYS_USE_BASE_CLOCK)
-		host->quirks2 |= SDHCI_QUIRK2_DIVIDE_TOUT_BY_4;
-
-	msm_host->minor = IPCAT_MINOR_MASK(readl_relaxed(host->ioaddr +
-				SDCC_IP_CATALOG));
-
-	host_version = readw_relaxed((host->ioaddr + SDHCI_HOST_VERSION));
-	dev_dbg(&pdev->dev, "Host Version: 0x%x Vendor Version 0x%x\n",
-		host_version, ((host_version & SDHCI_VENDOR_VER_MASK) >>
-		  SDHCI_VENDOR_VER_SHIFT));
-	if (((host_version & SDHCI_VENDOR_VER_MASK) >>
-		SDHCI_VENDOR_VER_SHIFT) == SDHCI_VER_100) {
-		/*
-		 * Add 40us delay in interrupt handler when
-		 * operating at initialization frequency(400KHz).
-		 */
-		host->quirks2 |= SDHCI_QUIRK2_SLOW_INT_CLR;
-		/*
-		 * Set Software Reset for DAT line in Software
-		 * Reset Register (Bit 2).
-		 */
-		host->quirks2 |= SDHCI_QUIRK2_RDWR_TX_ACTIVE_EOT;
+	/* Setup IRQ for handling power/voltage tasks with PMIC */
+	msm_host->pwr_irq = platform_get_irq_byname(pdev, "pwr_irq");
+	if (msm_host->pwr_irq < 0) {
+		ret = msm_host->pwr_irq;
+		goto clk_disable;
 	}
 
 	host->quirks2 |= SDHCI_QUIRK2_IGN_DATA_END_BIT_ERROR;
@@ -5678,6 +5623,8 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	/* Setup PWRCTL irq */
 	msm_host->pwr_irq = platform_get_irq_byname(pdev, "pwr_irq");
 	if (msm_host->pwr_irq < 0) {
+		dev_err(&pdev->dev, "Failed to get pwr_irq by name (%d)\n",
+				msm_host->pwr_irq);
 		goto vreg_deinit;
 	}
 	ret = devm_request_threaded_irq(&pdev->dev, msm_host->pwr_irq, NULL,

@@ -204,8 +204,7 @@ static size_t cfg80211_gen_new_ie(const u8 *ie, size_t ielen,
 	tmp_old = cfg80211_find_ie(WLAN_EID_SSID, ie, ielen);
 	tmp_old = (tmp_old) ? tmp_old + tmp_old[1] + 2 : ie;
 
-	while (tmp_old + 2 - ie <= ielen &&
-	       tmp_old + tmp_old[1] + 2 - ie <= ielen) {
+	while (tmp_old + tmp_old[1] + 2 - ie <= ielen) {
 		if (tmp_old[0] == 0) {
 			tmp_old++;
 			continue;
@@ -226,8 +225,7 @@ static size_t cfg80211_gen_new_ie(const u8 *ie, size_t ielen,
 			 * determine if they are the same ie.
 			 */
 			if (tmp_old[0] == WLAN_EID_VENDOR_SPECIFIC) {
-				if (tmp_old[1] >= 5 && tmp[1] >= 5 &&
-				    !memcmp(tmp_old + 2, tmp + 2, 5)) {
+				if (!memcmp(tmp_old + 2, tmp + 2, 5)) {
 					/* same vendor ie, copy from
 					 * subelement
 					 */
@@ -256,8 +254,7 @@ static size_t cfg80211_gen_new_ie(const u8 *ie, size_t ielen,
 	 * copied to new ie, skip ssid, capability, bssid-index ie
 	 */
 	tmp_new = sub_copy;
-	while (tmp_new + 2 - sub_copy <= subie_len &&
-	       tmp_new + tmp_new[1] + 2 - sub_copy <= subie_len) {
+	while (tmp_new + tmp_new[1] + 2 - sub_copy <= subie_len) {
 		if (!(tmp_new[0] == WLAN_EID_NON_TX_BSSID_CAP ||
 		      tmp_new[0] == WLAN_EID_SSID ||
 		      tmp_new[0] == WLAN_EID_MULTI_BSSID_IDX ||
@@ -323,15 +320,6 @@ cfg80211_add_nontrans_list(struct cfg80211_bss *trans_bss,
 	}
 
 	rcu_read_unlock();
-
-	/*
-	 * This is a bit weird - it's not on the list, but already on another
-	 * one! The only way that could happen is if there's some BSSID/SSID
-	 * shared by multiple APs in their multi-BSSID profiles, potentially
-	 * with hidden SSID mixed in ... ignore it.
-	 */
-	if (!list_empty(&nontrans_bss->nontrans_list))
-		return -EINVAL;
 
 	/* add to the list */
 	list_add_tail(&nontrans_bss->nontrans_list, &trans_bss->nontrans_list);
@@ -1395,7 +1383,6 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 		/* this is a nontransmitting bss, we need to add it to
 		 * transmitting bss' list if it is not there
 		 */
-		spin_lock_bh(&rdev->bss_lock);
 		if (cfg80211_add_nontrans_list(non_tx_data->tx_bss,
 					       &res->pub)) {
 			if (__cfg80211_unlink_bss(rdev, res)) {
@@ -1403,7 +1390,6 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 				res = NULL;
 			}
 		}
-		spin_unlock_bh(&rdev->bss_lock);
 
 		if (!res)
 			return NULL;

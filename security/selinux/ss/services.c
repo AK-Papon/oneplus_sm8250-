@@ -1966,8 +1966,7 @@ struct convert_context_args {
  * in `newc'.  Verify that the context is valid
  * under the new policy.
  */
-static int convert_context(struct context *oldc, struct context *newc, void *p,
-			   gfp_t gfp_flags)
+static int convert_context(struct context *oldc, struct context *newc, void *p)
 {
 	struct convert_context_args *args;
 	struct ocontext *oc;
@@ -1981,7 +1980,7 @@ static int convert_context(struct context *oldc, struct context *newc, void *p,
 	args = p;
 
 	if (oldc->str) {
-		s = kstrdup(oldc->str, gfp_flags);
+		s = kstrdup(oldc->str, GFP_KERNEL);
 		if (!s)
 			return -ENOMEM;
 

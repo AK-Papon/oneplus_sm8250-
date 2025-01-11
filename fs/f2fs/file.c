@@ -214,9 +214,6 @@ static inline enum cp_reason_type need_do_checkpoint(struct inode *inode)
 		f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,
 							TRANS_DIR_INO))
 		cp_reason = CP_RECOVER_DIR;
-	else if (f2fs_exist_written_data(sbi, F2FS_I(inode)->i_pino,
-							XATTR_DIR_INO))
-		cp_reason = CP_XATTR_DIR;
 
 	return cp_reason;
 }
@@ -1049,10 +1046,8 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 
 	if (attr->ia_valid & ATTR_MODE) {
 		err = posix_acl_chmod(inode, f2fs_get_inode_mode(inode));
-
-		if (is_inode_flag_set(inode, FI_ACL_MODE)) {
-			if (!err)
-				inode->i_mode = F2FS_I(inode)->i_acl_mode;
+		if (err || is_inode_flag_set(inode, FI_ACL_MODE)) {
+			inode->i_mode = F2FS_I(inode)->i_acl_mode;
 			clear_inode_flag(inode, FI_ACL_MODE);
 		}
 	}

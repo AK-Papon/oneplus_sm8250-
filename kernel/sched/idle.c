@@ -60,8 +60,7 @@ static noinline int __cpuidle cpu_idle_poll(void)
 	local_irq_enable();
 
 	while (!tif_need_resched() &&
-	       (cpu_idle_force_poll || tick_check_broadcast_expired() ||
-		is_reserved(smp_processor_id())))
+	       (cpu_idle_force_poll || tick_check_broadcast_expired()))
 		cpu_relax();
 
 	rcu_idle_exit();

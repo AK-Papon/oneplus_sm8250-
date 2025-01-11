@@ -804,8 +804,7 @@ static int rtl8150_get_link_ksettings(struct net_device *netdev,
 				      struct ethtool_link_ksettings *ecmd)
 {
 	rtl8150_t *dev = netdev_priv(netdev);
-	short lpa = 0;
-	short bmcr = 0;
+	short lpa, bmcr;
 	u32 supported;
 
 	supported = (SUPPORTED_10baseT_Half |

@@ -1195,13 +1195,16 @@ static void set_domain_attribute(struct sched_domain *sd,
 	if (!attr || attr->relax_domain_level < 0) {
 		if (default_relax_domain_level < 0)
 			return;
-		request = default_relax_domain_level;
+		else
+			request = default_relax_domain_level;
 	} else
 		request = attr->relax_domain_level;
-
-	if (sd->level >= request) {
+	if (request < sd->level) {
 		/* Turn off idle balance on this domain: */
 		sd->flags &= ~(SD_BALANCE_WAKE|SD_BALANCE_NEWIDLE);
+	} else {
+		/* Turn on idle balance on this domain: */
+		sd->flags |= (SD_BALANCE_WAKE|SD_BALANCE_NEWIDLE);
 	}
 }
 
